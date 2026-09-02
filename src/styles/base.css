@@ -86,8 +86,10 @@ body {
 .wb-resizer { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 4; }
 .wb-resizer::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: 4px; width: 1px; background: #D6D0C4; }
 .wb-resizer:hover::after, .wb-resizer.active::after { background: var(--pei-amber); width: 2px; left: 3.5px; }
-.wb-table tbody tr:nth-child(even) td:not(.wb-frozen) { background: #FAFBFC; }
-.wb-table tbody tr:nth-child(even) td.wb-frozen { background: #FAFBFC; }
+/* Row-parity zebra was retired in v88 — the banding now follows the PO, not
+   every other row, because "am I still on the same PO?" is the question this
+   grid is actually asked. Rules kept as a marker so nobody reintroduces them:
+   two competing stripe systems is what made the grid look busy. */
 .wb-row-selected td:not(.wb-frozen) { background: #F0F7F6; }
 .wb-row-selected .wb-frozen { background: #EAF3F2; }
 .wb-summary-bar { display: flex; gap: 24px; background: #101B30; color: #fff; padding: 10px 18px; border-radius: 10px; margin-bottom: 14px; font-size: 12.5px; align-items: center; position: sticky; top: 0; z-index: 15; }
@@ -796,8 +798,12 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
    a performance record and that is the fact a manager is looking for.
    ========================================================================== */
 
-.fu-table { width: 100%; }
-.fu-table th, .fu-table td { padding: 4px 7px; font-size: 11px; white-space: nowrap; }
+.fu-table { table-layout: fixed; }
+/* Fixed layout means a long value would otherwise paint straight over its
+   neighbour instead of being cut off — which is what "403 TOTAL ECLIPSE"
+   started doing to the Qty column. Clipped with an ellipsis, and the full
+   value stays available on hover. */
+.fu-table th, .fu-table td { padding: 4px 7px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fu-table th { font-size: 9.5px; letter-spacing: .4px; text-transform: uppercase; }
 .fu-table td.fu-ms { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
 
@@ -827,21 +833,24 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
 @page { size: A4 landscape; margin: 9mm; }
 @media print {
   /* Measured against the real page box rather than guessed: A4 landscape at
-     96dpi is 1123px, less the 9mm margins declared above, leaves 1054px. The
-     sheet has to carry eight identity columns plus the milestones, so the
-     identity columns are capped and truncated and the milestone cells are set
-     as tight as they can be while a date stays legible. */
-  .fu-table { table-layout: fixed; width: 100%; }
+     96dpi is 1123px, less the 9mm margins declared above, leaves 1054px.
+
+     The screen widths are inline on the <col> elements (they have to be, since
+     the sum depends on how many milestones are selected), so overriding them
+     for paper is the one place !important is the right tool rather than a
+     shortcut. Identity 382px + 55px per milestone leaves room for twelve. */
+  .fu-table { width: auto !important; min-width: 0 !important; }
+  col.fu-col-ms { width: 55px !important; }
+  col.fu-col-id-0 { width: 26px !important; }   /* BU      */
+  col.fu-col-id-1 { width: 54px !important; }   /* PO      */
+  col.fu-col-id-2 { width: 52px !important; }   /* Style   */
+  col.fu-col-id-3 { width: 84px !important; }   /* Colour  */
+  col.fu-col-id-4 { width: 40px !important; }   /* Qty     */
+  col.fu-col-id-5 { width: 38px !important; }   /* FOB     */
+  col.fu-col-id-6 { width: 44px !important; }   /* ETD     */
+  col.fu-col-id-7 { width: 44px !important; }   /* Rev ETD */
   .fu-table th, .fu-table td { padding: 1px 3px; font-size: 7.5px; overflow: hidden; text-overflow: ellipsis; }
   .fu-table th { font-size: 6.5px; letter-spacing: 0; }
-  .fu-table th:nth-child(1), .fu-table td:nth-child(1) { width: 26px; }    /* BU */
-  .fu-table th:nth-child(2), .fu-table td:nth-child(2) { width: 54px; }    /* PO */
-  .fu-table th:nth-child(3), .fu-table td:nth-child(3) { width: 52px; }    /* Style */
-  .fu-table th:nth-child(4), .fu-table td:nth-child(4) { width: 84px; }    /* Color */
-  .fu-table th:nth-child(5), .fu-table td:nth-child(5) { width: 40px; }    /* Qty */
-  .fu-table th:nth-child(6), .fu-table td:nth-child(6) { width: 38px; }    /* FOB */
-  .fu-table th:nth-child(7), .fu-table td:nth-child(7) { width: 44px; }    /* ETD */
-  .fu-table th:nth-child(8), .fu-table td:nth-child(8) { width: 44px; }    /* Rev ETD */
   .fu-cell { gap: 1px; padding: 0 1px; }
   .fu-ap { font-size: 6px; padding: 0 1px; }
   .fu-st { font-size: 6px; }
@@ -854,3 +863,186 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
 
 .wb-pager { padding: 10px 2px 0; }
 .fu-legend-note { color: var(--pei-faint); font-style: italic; }
+
+/* ==========================================================================
+   v88 — Workbench comfort: a scrollbar you can always reach, blank cells that
+   look blank, and banding that follows the PO.
+   ========================================================================== */
+
+/* --- the scrollbar problem -------------------------------------------------
+   With a long order list both horizontal scrollbars ended up below the fold,
+   so moving sideways through nineteen milestones meant guessing with the
+   wheel. Two fixes, together: the mirror strip sticks under the app header,
+   and the grid itself is a fixed-height box whose own scrollbar sits at the
+   bottom edge of that box rather than at the bottom of the page. */
+.wb-top-scroll {
+  overflow-x: auto; overflow-y: hidden; height: 14px; margin-bottom: 4px;
+  position: sticky; top: 0; z-index: 30;
+  background: var(--pei-page); border-radius: 7px;
+}
+.wb-card { position: relative; }
+.wb-card .tna-scroll {
+  overflow: auto;
+  /* Everything above the grid — app header, summary bar, filters, legend —
+     comes to roughly 330px; the rest of the viewport is the grid, and it never
+     gets shorter than a usable ten rows. */
+  max-height: max(420px, calc(100vh - 330px));
+  overscroll-behavior-x: contain;
+}
+/* A visible, grabbable bar rather than the hairline overlay scrollbar some
+   platforms default to — this one has to be found without hunting. */
+.wb-card .tna-scroll::-webkit-scrollbar { height: 13px; width: 13px; }
+.wb-card .tna-scroll::-webkit-scrollbar-track { background: #EEF1F5; border-radius: 7px; }
+.wb-card .tna-scroll::-webkit-scrollbar-thumb { background: #A9B4C2; border-radius: 7px; border: 3px solid #EEF1F5; }
+.wb-card .tna-scroll::-webkit-scrollbar-thumb:hover { background: #8894A4; }
+.wb-top-scroll::-webkit-scrollbar { height: 13px; }
+.wb-top-scroll::-webkit-scrollbar-track { background: #EEF1F5; border-radius: 7px; }
+.wb-top-scroll::-webkit-scrollbar-thumb { background: #A9B4C2; border-radius: 7px; border: 3px solid #EEF1F5; }
+.wb-card .tna-scroll { scrollbar-color: #A9B4C2 #EEF1F5; scrollbar-width: auto; }
+
+/* The header stays put while the rows move under it. Milestone headers sit
+   above the frozen ones in the stack so the two never overlap wrongly at the
+   top-left corner. */
+.wb-table thead th { position: sticky; top: 0; z-index: 12; background: var(--pei-surface-2); }
+.wb-table thead th.wb-frozen { z-index: 14; }
+.wb-table tbody td.wb-frozen { z-index: 6; }
+
+/* --- blank cells that look blank -------------------------------------------
+   A native empty date input paints "mm/dd/yyyy" and a calendar button. Across
+   2,400 inputs that is the single biggest source of visual noise, and it makes
+   a filled date and an empty one look equally busy — the opposite of what a
+   merchandiser scanning for gaps needs. An empty cell is therefore quiet until
+   you go near it. */
+/* Chromium paints each sub-field (month / day / year) separately and they do
+   not reliably inherit from ::-webkit-datetime-edit, so every one is named. */
+.wb-table .wb-input.is-empty::-webkit-datetime-edit,
+.wb-table .wb-input.is-empty::-webkit-datetime-edit-text,
+.wb-table .wb-input.is-empty::-webkit-datetime-edit-month-field,
+.wb-table .wb-input.is-empty::-webkit-datetime-edit-day-field,
+.wb-table .wb-input.is-empty::-webkit-datetime-edit-year-field { color: transparent; }
+.wb-table .wb-input.is-empty::-webkit-calendar-picker-indicator { opacity: .18; }
+.wb-table .wb-input.is-empty {
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 1px dashed #D3D9E0;   /* still visibly a field to type into */
+  border-radius: 0;
+}
+.wb-table .wb-input.is-empty:hover,
+.wb-table .wb-input.is-empty:focus {
+  background: var(--pei-surface);
+  border: 1px solid var(--pei-amber);
+  border-radius: 5px;
+}
+.wb-table .wb-input.is-empty:hover::-webkit-datetime-edit,
+.wb-table .wb-input.is-empty:hover::-webkit-datetime-edit-text,
+.wb-table .wb-input.is-empty:hover::-webkit-datetime-edit-month-field,
+.wb-table .wb-input.is-empty:hover::-webkit-datetime-edit-day-field,
+.wb-table .wb-input.is-empty:hover::-webkit-datetime-edit-year-field,
+.wb-table .wb-input.is-empty:focus::-webkit-datetime-edit,
+.wb-table .wb-input.is-empty:focus::-webkit-datetime-edit-text,
+.wb-table .wb-input.is-empty:focus::-webkit-datetime-edit-month-field,
+.wb-table .wb-input.is-empty:focus::-webkit-datetime-edit-day-field,
+.wb-table .wb-input.is-empty:focus::-webkit-datetime-edit-year-field { color: var(--pei-muted); }
+.wb-table .wb-input.is-empty:hover::-webkit-calendar-picker-indicator,
+.wb-table .wb-input.is-empty:focus::-webkit-calendar-picker-indicator { opacity: .7; }
+/* An empty PLAN date that the reminder has flagged keeps its colour — quiet
+   must never mean invisible where something is actually wrong. */
+.wb-table .wb-input.is-empty.wb-rem-soon,
+.wb-table .wb-input.is-empty.wb-rem-due { border-radius: 5px; }
+
+/* A filled date is the thing worth reading, so it gets the ink. */
+.wb-table .wb-ms-date { color: var(--pei-ink); }
+.wb-table .wb-ms-date::-webkit-calendar-picker-indicator { opacity: .35; }
+.wb-table .wb-ms-date:hover::-webkit-calendar-picker-indicator { opacity: .8; }
+
+/* --- banding by PO ---------------------------------------------------------
+   The band changes when the PO changes, and a rule is drawn above the first
+   colour row of each PO. Misreading a date into the row above is the mistake
+   this is here to prevent. */
+.wb-table tbody tr.wb-band > td { background: #F7F9FB; }
+.wb-table tbody tr.wb-band > td.wb-frozen { background: #F4F7FA; }
+.wb-table tbody tr.wb-order-start > td { border-top: 1px solid #C9D2DC; }
+.wb-table tbody tr.wb-row:hover > td { background: #FFF9EC !important; }
+.wb-table tbody tr.wb-row-selected > td { background: #FDF3DC !important; }
+
+/* --- Follow-up Report: a toolbar that stays, headers that wrap -------------
+   The report is a long grouped sheet. Changing a filter or hitting Print
+   should not require scrolling back past three label sections to reach the
+   controls. */
+.fu-toolbar {
+  position: sticky; top: 0; z-index: 40;
+  /* An opaque background is what makes a sticky bar a bar. Named the wrong
+     token first (--pei-bg does not exist), which left it transparent and let
+     the rows scroll straight through the filters. */
+  background: var(--pei-page);
+  padding: 10px 14px 8px; margin: 0 -14px 4px;
+  border-bottom: 1px solid var(--pei-border);
+  box-shadow: 0 6px 10px -8px rgba(16,27,48,.25);
+}
+.fu-toolbar .filter-row { margin-bottom: 6px; }
+.fu-toolbar .fu-legend { margin-bottom: 2px; }
+
+/* The column header is deliberately NOT sticky here, and it is worth saying
+   why rather than leaving a rule that quietly does nothing: each label section
+   scrolls horizontally inside its own overflow box, and an element with
+   overflow in one axis becomes the sticky containing block for both — so a
+   sticky header would pin to a box that never scrolls vertically and travel
+   off screen anyway. The report is grouped, so every label section reprints
+   its own header a few rows later, which is the honest version of the same
+   thing. The toolbar above is what actually needed to stay. */
+
+/* The milestone header stacks on its slash and the column narrows to the width
+   of a date rather than the width of the longest word in its name. */
+.fu-table th.fu-msh { white-space: normal; line-height: 1.15; vertical-align: bottom; word-break: break-word; }
+.fu-msh-part { display: block; }
+.fu-msh-slash { display: none; }
+
+@media print {
+  /* Nothing sticks on paper — sticky headers become duplicated rows. */
+  .fu-toolbar { position: static; box-shadow: none; border-bottom: none; }
+  .fu-table thead th { position: static; }
+
+}
+
+/* --- the top-bar search ----------------------------------------------------
+   Replaces a disabled input that had sat on every screen looking like a
+   feature. Sized to the longest thing people type into it (a PO plus a style),
+   and it keeps the panel anchored under the box rather than in a portal, so it
+   travels with the header on every screen. */
+.gs { position: relative; flex: 1; max-width: 400px; display: flex; align-items: center; }
+.gs-icon { position: absolute; left: 11px; font-size: 15px; color: var(--pei-faint); pointer-events: none; line-height: 1; }
+.gs-input {
+  width: 100%; padding: 7px 62px 7px 30px;
+  border: 1px solid var(--pei-border); border-radius: 8px;
+  background: var(--pei-surface); color: var(--pei-ink); font-size: 13px;
+}
+.gs-input::placeholder { color: var(--pei-faint); }
+.gs-input:focus { outline: none; border-color: var(--pei-amber); box-shadow: 0 0 0 3px var(--pei-amber-soft); }
+.gs-hint {
+  position: absolute; right: 9px; font-size: 10px; letter-spacing: .4px;
+  color: var(--pei-faint); border: 1px solid var(--pei-border); border-radius: 4px;
+  padding: 1px 5px; pointer-events: none; background: var(--pei-surface-2);
+}
+.gs-clear { position: absolute; right: 7px; border: none; background: none; cursor: pointer; font-size: 17px; line-height: 1; color: var(--pei-muted); padding: 2px 6px; }
+.gs-clear:hover { color: var(--pei-ink); }
+
+.gs-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 200;
+  background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(16,27,48,.18); overflow: hidden; max-height: 60vh; overflow-y: auto;
+}
+.gs-row {
+  display: grid; grid-template-columns: 86px 82px 1fr auto; gap: 10px; align-items: baseline;
+  width: 100%; text-align: left; border: none; background: none; cursor: pointer;
+  padding: 9px 12px; border-bottom: 1px solid var(--pei-border-soft); font-size: 12.5px;
+}
+.gs-row:last-of-type { border-bottom: none; }
+.gs-row.active { background: var(--pei-amber-soft); }
+.gs-po { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 700; color: var(--pei-navy); }
+.gs-style { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--pei-ink-2); }
+.gs-meta { color: var(--pei-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-etd { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--pei-ink-2); white-space: nowrap; }
+.gs-rev { margin-left: 4px; font-size: 9px; font-weight: 700; color: var(--pei-amber-dark); text-transform: uppercase; }
+.gs-note { padding: 14px 14px; font-size: 12.5px; color: var(--pei-muted); }
+.gs-note.gs-error { color: var(--pei-bad-fg); }
+.gs-foot { padding: 7px 12px; font-size: 11px; color: var(--pei-faint); background: var(--pei-surface-2); border-top: 1px solid var(--pei-border-soft); }

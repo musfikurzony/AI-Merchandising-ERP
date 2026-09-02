@@ -42,10 +42,19 @@ function fmtNum(n) { return n == null ? "—" : Number(n).toLocaleString("en-US"
 
 function buildColorRows(orders, colorWaysByOrder) {
   const rows = [];
-  orders.forEach(o => {
+  orders.forEach((o, orderIdx) => {
     const colors = colorWaysByOrder[o.id]?.length ? colorWaysByOrder[o.id] : [{ name: "—", qty: o.qty }];
     colors.forEach((cw, idx) => {
-      rows.push({ rowId: `${o.id}-c${idx}`, order: o, colorName: cw.name, colorQty: cw.qty ?? o.qty, colorIdx: idx, spanCount: colors.length });
+      rows.push({
+        rowId: `${o.id}-c${idx}`, order: o, colorName: cw.name, colorQty: cw.qty ?? o.qty,
+        colorIdx: idx, spanCount: colors.length,
+        /* Banding by ORDER rather than by row parity. Zebra striping every
+           other row tells you nothing here — what a merchandiser needs to see
+           is which colour rows belong to the same PO, because that is the line
+           a date gets typed into by mistake. The band changes when the PO
+           changes, and the first row of each PO carries a rule above it. */
+        orderIdx, firstOfOrder: idx === 0,
+      });
     });
   });
   return rows;
@@ -56,15 +65,27 @@ function buildColorRows(orders, colorWaysByOrder) {
    striping still reads correctly (an inline style always beats a CSS
    class, so both effects are computed together here rather than fighting
    over which one wins). */
-const GROUP_TINTS = [
-  ["#FFFFFF", "#FAFBFC"], // group 0: white / light grey (odd/even row)
-  ["#F6FAF9", "#F0F6F5"], // group 1: pale teal
-  ["#FAFAFC", "#F4F4F8"], // group 2: pale lavender
-  ["#FCFAF6", "#F8F3EC"], // group 3: pale amber
-];
-function tintFor(colIndex, rowIndex) {
-  const [odd, even] = GROUP_TINTS[colIndex % GROUP_TINTS.length];
-  return rowIndex % 2 === 0 ? odd : even;
+/* Two jobs, kept apart so they stop fighting.
+
+   Horizontally, milestone groups alternate between a plain and a very faintly
+   cool cell so the eye can tell one milestone block from the next while
+   scrolling sideways. Vertically, the band changes when the PO changes, not
+   every other row — the question a merchandiser is actually asking is "am I
+   still on the same PO?", and zebra striping answers a question nobody asked.
+
+   Both tints are deliberately near-white. The only strong colour in this grid
+   belongs to the reminder, and a busy background is what made the previous
+   version hard to read. */
+const COL_TINTS = ["#FFFFFF", "#FBFCFD"];
+const ORDER_BANDS = ["#FFFFFF", "#F7F9FB"];
+
+function tintFor(colIndex, orderIdx) {
+  /* When the two agree it stays plain; when they differ the cell takes the
+     cooler of the two, so the grid reads as a light checker rather than as
+     four competing colours. */
+  const col = COL_TINTS[colIndex % 2];
+  const band = ORDER_BANDS[orderIdx % 2];
+  return band !== "#FFFFFF" ? band : col;
 }
 
 function fieldsFor(col, milestone, edits) {
@@ -111,8 +132,14 @@ function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint,
       <td className={"wb-ms" + (showApply ? " wb-cell-with-action" : "")} style={tintStyle}>
         <div className="wb-ms-line">
           <span className="wb-ms-tag">P</span>
+          {/* An empty date input renders "mm/dd/yyyy" plus a calendar button
+              natively, and 2,400 of those is what made this grid look busy.
+              Empty cells are marked so the CSS can hide that chrome and let a
+              blank cell actually look blank — the fastest way to spot a date
+              nobody has filled in. It comes back on hover and focus, so the
+              field is still obviously a field. */}
           <input
-            className={"wb-input wb-ms-date" + (kind !== REMINDER_NONE ? ` wb-rem-${kind}` : "")}
+            className={"wb-input wb-ms-date" + (f.plan ? "" : " is-empty") + (kind !== REMINDER_NONE ? ` wb-rem-${kind}` : "")}
             type="date" disabled={disabled} value={f.plan}
             title={kind !== REMINDER_NONE ? reminderTitle(kind, live, today) : "Planned date"}
             onChange={e => setField(row, col, "plan_date", e.target.value)}
@@ -121,7 +148,8 @@ function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint,
         <div className="wb-ms-line">
           <span className="wb-ms-tag">A</span>
           <input
-            className="wb-input wb-ms-date" type="date" disabled={disabled} value={f.actual}
+            className={"wb-input wb-ms-date" + (f.actual ? "" : " is-empty")}
+            type="date" disabled={disabled} value={f.actual}
             title="Actual date — entering this clears the reminder colour. It does not change the status."
             onChange={e => setField(row, col, "actual_date", e.target.value)}
           />
@@ -163,7 +191,12 @@ const WbRow = React.memo(function WbRow({
   frozenStyle, onSelectRow, onActivate, onContext, onCopyRow, setField, onApplyAll,
 }) {
   return (
-    <tr className={selected ? "wb-row-selected" : ""}
+    <tr className={[
+      "wb-row",
+      row.orderIdx % 2 ? "wb-band" : "",
+      row.firstOfOrder ? "wb-order-start" : "",
+      selected ? "wb-row-selected" : "",
+    ].filter(Boolean).join(" ")}
       onClick={() => onActivate(row.rowId)}
       onContextMenu={e => { e.preventDefault(); onActivate(row.rowId); onContext({ x: e.clientX, y: e.clientY, rowId: row.rowId }); }}>
       <td className="wb-frozen wb-frozen-0" style={frozenStyle(0)}><input type="checkbox" checked={selected} onChange={() => onSelectRow(row.rowId)} /></td>
@@ -183,7 +216,7 @@ const WbRow = React.memo(function WbRow({
           milestone={milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`]}
           edit={rowEdits?.[col.color_level ? `${col.key}::${row.colorName}` : col.key]}
           setField={setField} onApplyAll={onApplyAll}
-          tint={tintFor(colIndex, rowIndex)} />
+          tint={tintFor(colIndex, row.orderIdx)} />
       ))}
     </tr>
   );
@@ -577,9 +610,16 @@ export default function Workbench() {
         </div>
       )}
 
-      <div ref={topScrollRef} onScroll={syncFromTop} className="wb-top-scroll"><div style={{ width: scrollWidth, height: 1 }} /></div>
+      {/* The mirror scrollbar sticks to the top of the viewport, and the grid
+          below gets a fixed viewport-height box with its own scrollbar at the
+          bottom. Either way a horizontal scrollbar is always within reach —
+          previously both of them scrolled off the screen with a long list, and
+          the only way to move sideways was to guess with the wheel. */}
+      <div ref={topScrollRef} onScroll={syncFromTop} className="wb-top-scroll">
+        <div style={{ width: scrollWidth, height: 1 }} />
+      </div>
 
-      <div className="card no-pad">
+      <div className="card no-pad wb-card">
         {/* The two reminder colours explained where they are used. A colour
             nobody can name is a colour nobody trusts. */}
         <div className="wb-legend">

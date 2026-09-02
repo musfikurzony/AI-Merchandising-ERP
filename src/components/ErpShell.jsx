@@ -4,6 +4,7 @@ import { NavLink, Link, Outlet, useLocation } from "react-router-dom";
 import { hasModulePermission, ROLE_LANDING_ROUTE } from "../lib/permissions.js";
 import { DATE_FORMAT_OPTIONS } from "../lib/dateFormat.js";
 import ErrorBoundary from "./ErrorBoundary.jsx";
+import GlobalSearch from "./GlobalSearch.jsx";
 
 /* Grouping and labels exactly as specified. Administration is deliberately
    NOT included here -- it stays separately protected via /admin, its own
@@ -138,8 +139,7 @@ export default function ErpShell({ profile, signOut }) {
           display: "flex", alignItems: "center", padding: "0 26px", gap: 18, flexShrink: 0,
         }}>
           <h1 style={{ fontSize: 15.5, fontWeight: 650, margin: 0, flexShrink: 0 }}>{currentTitle}</h1>
-          <input placeholder="Search..." disabled
-            style={{ flex: 1, maxWidth: 330, padding: "7px 12px", border: "1px solid var(--pei-border)", borderRadius: 8, background: "#FAF8F4", color: "var(--pei-faint)", fontSize: 13 }} />
+          <GlobalSearch dateFormat={dateFormat} />
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
             <select value={dateFormat} onChange={e => setDateFormat(e.target.value)}
               style={{ fontSize: 12, padding: "6px 9px", border: "1px solid var(--pei-border)", borderRadius: 8, color: "var(--pei-ink-2)", background: "var(--pei-surface)" }}

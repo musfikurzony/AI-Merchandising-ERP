@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import { stamp } from "../../lib/exportPreview.js";
@@ -16,9 +16,40 @@ import { completedLate, lateByDays } from "../../lib/milestoneReminder.js";
    user. Only orders with a factory assigned are shown -- same rule v13
    uses, and the same one `listWorkbenchOrders()` already enforces. */
 
+/* SCREEN widths, measured rather than chosen: each is the rendered width of
+   the longest realistic value in that column at 11px, plus cell padding
+   ("403 TOTAL ECLIPSE" 113px, a date 53px, a date with its A mark and status
+   code 87px). Squeezing these was a mistake in an earlier draft — on screen
+   there is horizontal room, and truncating "05/12/26" to "05/12…" to save
+   16px helps nobody. The tight PRINT widths are a separate set in base.css,
+   because paper is where the space is genuinely scarce. */
+const FU_ID_WIDTHS = [36, 63, 69, 129, 56, 56, 69, 69];
+const FU_MS_WIDTH = 103;
+/* How many milestones fit A4 landscape, from the PRINT widths in base.css:
+   1054px usable, 382px of identity columns, 55px each. Stated here so the
+   sentence on the sheet and the number in the test come from one place. */
+export const FU_A4_MILESTONES = Math.floor((1054 - 382) / 55);
+
 const REPORT_DEFAULT_KEYS = ["fab_ref", "lab_dip", "strike_off", "fab_etd", "fab_inhouse", "fit", "pp", "prod_start", "shade_band", "crd"];
 
 function fmtNum(n) { return n == null ? "—" : Number(n).toLocaleString("en-US"); }
+
+/* A milestone header wraps at its slash or at a space, so "Fabric Strike-off /
+   Handloom" becomes two short lines instead of one long one. Returned as
+   fragments rather than inserting <br> into a string, so a label containing
+   markup characters can never become markup. */
+function wrapHeader(label) {
+  const parts = String(label).split(/\s*\/\s*/);
+  if (parts.length > 1) {
+    return parts.map((part, i) => (
+      <React.Fragment key={i}>
+        {i > 0 && <span className="fu-msh-slash">/</span>}
+        <span className="fu-msh-part">{part}</span>
+      </React.Fragment>
+    ));
+  }
+  return <span className="fu-msh-part">{label}</span>;
+}
 
 /* The printed report asks a different question from the Workbench.
 
@@ -162,17 +193,34 @@ function FollowUpLegend({ showStatus, printed }) {
 }
 
 function ReportTable({ group, cols, milestonesByKey, dateFormat, showStatus }) {
+  const fuTableWidth = FU_ID_WIDTHS.reduce((a, w) => a + w, 0) + cols.length * FU_MS_WIDTH;
   return (
     <div style={{ marginBottom: 22 }}>
       <div style={{ background: "#101B30", color: "#fff", padding: "8px 14px", borderRadius: "8px 8px 0 0", fontWeight: 600, fontSize: 13 }}>
         {group.label ? `${group.label.code} - ${group.label.name}` : "No Label"}
       </div>
       <div className="tna-scroll">
-        <table className="data-table fu-table">
+        {/* Explicit widths under a fixed layout. Without them the browser
+            widened every milestone column to fit its header — "Fabric
+            Strike-off / Handloom" alone was pushing a date column to 179px,
+            nearly three times what a date needs. The header now wraps and the
+            column is sized by its data. */}
+        {/* The width is the exact sum of the columns. Left to stretch to the
+            container the browser hands the slack back to the widest header,
+            which is precisely the column that should be narrowest. */}
+        <table className="data-table fu-table" style={{ width: fuTableWidth, minWidth: fuTableWidth }} data-cols={cols.length}>
+          <colgroup>
+            {FU_ID_WIDTHS.map((w, i) => <col key={`i${i}`} className={`fu-col-id fu-col-id-${i}`} style={{ width: w }} />)}
+            {cols.map(c => <col key={c.key} className="fu-col-ms" style={{ width: FU_MS_WIDTH }} />)}
+          </colgroup>
           <thead>
             <tr>
               <th>BU</th><th>PO</th><th>Style</th><th>Color</th><th>Qty</th><th>FOB</th><th>ETD</th><th>Rev ETD</th>
-              {cols.map(col => <th key={col.key}>{col.label}</th>)}
+              {/* "Fabric Strike-off / Handloom" on one line forced the column
+                  to the width of the longest header rather than the width of a
+                  date. Breaking on the slash lets the header stack while the
+                  column stays as narrow as its data. */}
+              {cols.map(col => <th key={col.key} className="fu-msh">{wrapHeader(col.label)}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -180,8 +228,8 @@ function ReportTable({ group, cols, milestonesByKey, dateFormat, showStatus }) {
               <tr key={row.rowId}>
                 <td>{row.order.business_units?.code || "—"}</td>
                 <td className="mono strong">{row.order.po_prefix}{row.order.po_number}</td>
-                <td className="mono">{row.order.style}</td>
-                <td className="mono">{row.colorName}</td>
+                <td className="mono" title={row.order.style}>{row.order.style}</td>
+                <td className="mono" title={row.colorName}>{row.colorName}</td>
                 <td className="mono">{fmtNum(row.colorQty)}</td>
                 <td className="mono">{"fob" in row.order && row.order.fob != null ? `$${Number(row.order.fob).toFixed(2)}` : "—"}</td>
                 <td className="mono">{fmtCompact(row.order.etd, dateFormat)}</td>
@@ -238,6 +286,21 @@ export default function FollowUpReport() {
      that quietly dropped it would be missing the thing it is read for. It can
      be switched off for a purely date-focused factory hand-out. */
   const [showStatus, setShowStatus] = useState(true);
+
+  /* The column headers stick directly under the toolbar. Its height is
+     measured rather than hardcoded — it wraps to two or three rows on a narrow
+     window, and a fixed offset would either overlap the headers or leave a
+     gap. */
+  const toolbarRef = useRef(null);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => document.documentElement.style.setProperty("--fu-toolbar-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const [filters, setFilters] = useState({ factoryCode: "all", merchandiser: "all", productGroup: "all", customerCode: "all", etdFrom: "", etdTo: "" });
 
@@ -306,6 +369,11 @@ export default function FollowUpReport() {
       <h2 style={{ marginTop: 0 }}>Follow-up Report</h2>
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
 
+      {/* Filters, the status toggle and Print stay put while the report
+          scrolls. On a sheet grouped into label sections you are often deep in
+          the third group when you decide to change a filter or print — having
+          to scroll back to the top for that was the complaint. */}
+      <div className="fu-toolbar" ref={toolbarRef}>
       <div className="filter-row">
         <select value={filters.factoryCode} onChange={e => setFilters({ ...filters, factoryCode: e.target.value })}><option value="all">All Factories</option>{factories.map(f => <option key={f} value={f}>{f}</option>)}</select>
         <select value={filters.merchandiser} onChange={e => setFilters({ ...filters, merchandiser: e.target.value })}><option value="all">All Merchandisers</option>{merchandisers.map(m => <option key={m} value={m}>{m}</option>)}</select>
@@ -325,6 +393,7 @@ export default function FollowUpReport() {
         </div>
       </div>
       <FollowUpLegend showStatus={showStatus} />
+      </div>
       <p className="muted-sm" style={{ marginBottom: 14 }}>Grouped by Label — each section below is its own Label banner followed by that label's orders, one row per Color Way. Use Columns to add back fields not shown by default before printing if a particular meeting needs them.</p>
 
       {groups.map((g, i) => <ReportTable key={g.label?.code || i} group={g} cols={cols} milestonesByKey={milestonesByKey} dateFormat={dateFormat} showStatus={showStatus} />)}
@@ -345,10 +414,10 @@ export default function FollowUpReport() {
               {groups.map((g, i) => <ReportTable key={g.label?.code || i} group={g} cols={cols} milestonesByKey={milestonesByKey} dateFormat={dateFormat} showStatus={showStatus} />)}
               <FollowUpLegend showStatus={showStatus} printed />
               <p className="muted-sm">
-                Printed for factory / management review. Measured on this layout: <strong>eleven milestones fit A4
-                landscape</strong> alongside the eight identity columns (thirteen with status codes switched off).
-                The default set is ten, so it fits — past eleven, drop a column or print A3.
-                {cols.length > 11 && <strong style={{ color: "#B91C1C" }}> {cols.length} milestones are selected, which will overflow A4 — use A3 or remove {cols.length - 11}.</strong>}
+                Printed for factory / management review. Measured on this layout: <strong>twelve milestones fit A4
+                landscape</strong> alongside the eight identity columns. The default set is ten, so it fits — past
+                twelve, drop a column or print A3.
+                {cols.length > FU_A4_MILESTONES && <strong style={{ color: "#B91C1C" }}> {cols.length} milestones are selected, which will overflow A4 — use A3 or remove {cols.length - FU_A4_MILESTONES}.</strong>}
               </p>
             </div>
           </div>
