@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getOrganizationSettings, updateOrganizationSettings, listSystemSettings, updateSystemSetting } from "../../lib/adminApi.js";
 import { supabase } from "../../lib/supabaseClient.js";
+import { MONTH_NAMES } from "../../lib/reportContext.js";
 
 export default function OrganizationSettings() {
   const [org, setOrg] = useState(null);
@@ -23,7 +24,7 @@ export default function OrganizationSettings() {
     // to do with Storage. Previously both were inside one try block, so a
     // failed upload silently discarded the text-field save too.
     try {
-      await updateOrganizationSettings({ company_name: org.company_name, branch: org.branch, website: org.website, address: org.address, logo_url: org.logo_url });
+      await updateOrganizationSettings({ company_name: org.company_name, branch: org.branch, website: org.website, address: org.address, logo_url: org.logo_url, fiscal_year_start_month: org.fiscal_year_start_month ?? 2 });
     } catch (e) {
       setError(`Could not save organization details: ${e.message}`);
       return;
@@ -37,7 +38,7 @@ export default function OrganizationSettings() {
         const { error: upErr } = await supabase.storage.from("public-assets").upload(path, logoFile, { upsert: true });
         if (upErr) throw upErr;
         const { data } = supabase.storage.from("public-assets").getPublicUrl(path);
-        await updateOrganizationSettings({ company_name: org.company_name, branch: org.branch, website: org.website, address: org.address, logo_url: data.publicUrl });
+        await updateOrganizationSettings({ company_name: org.company_name, branch: org.branch, website: org.website, address: org.address, logo_url: data.publicUrl, fiscal_year_start_month: org.fiscal_year_start_month ?? 2 });
       } catch (e) {
         setError(`Organization details saved, but the logo upload failed: ${e.message}`);
         await refresh();
@@ -81,6 +82,23 @@ export default function OrganizationSettings() {
         {org.logo_url && <img src={org.logo_url} alt="Current logo" style={{ height: 40, display: "block", marginBottom: 6 }} />}
         <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files[0])} />
       </label>
+      <h3 style={{ marginTop: 28 }}>Financial Calendar</h3>
+      <label className="field">Fiscal Year Start Month
+        <select
+          value={org.fiscal_year_start_month ?? 2}
+          onChange={e => setOrg({ ...org, fiscal_year_start_month: Number(e.target.value) })}
+        >
+          {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+        </select>
+      </label>
+      <p style={{ fontSize: 12, color: "#6B7280", maxWidth: 620, lineHeight: 1.6, marginTop: -4 }}>
+        A fiscal year is labelled by the calendar year it <em>ends</em> in. With February selected,
+        01&nbsp;Feb&nbsp;2026 to 31&nbsp;Jan&nbsp;2027 is <strong>FY2027</strong>, and the quarters run
+        Feb–Apr, May–Jul, Aug–Oct, Nov–Jan. Changing this changes every fiscal-year filter, report header
+        and growth comparison across the ERP, so change it only when the company's financial calendar
+        actually changes. Requires migration 37; without it the setting stays at February.
+      </p>
+
       <button className="btn-primary" onClick={handleSaveOrg}>Save</button>
       {saved && <span style={{ marginLeft: 10, color: "#15803D" }}>Saved.</span>}
 

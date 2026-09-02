@@ -16,7 +16,7 @@ export async function listShipments(filters = {}) {
 }
 
 export async function getShipment(id) {
-  const { data, error } = await supabase.from("shipments").select("*").eq("id", id).single();
+  const { data, error } = await supabase.from("shipments").select("*, profiles!shipments_unlocked_by_fkey(full_name)").eq("id", id).single();
   if (error) throw error;
   return data;
 }
@@ -56,6 +56,17 @@ export async function addShipmentLine(shipmentId, orderId, colorWayName, shipped
 
 export async function deleteShipmentLine(lineId) {
   const { error } = await supabase.from("shipment_lines").delete().eq("id", lineId);
+  if (error) throw error;
+}
+
+/* Editing an existing line -- shipped_qty and unit_price only, matching
+   what's actually meant to change after the fact. shipment_value recomputes
+   automatically (generated column), so nothing else needs touching.
+   Governed by the exact same shipment_lines_write RLS policy as
+   add/delete -- locked shipments are rejected at the database level here
+   too, not just hidden in the UI. */
+export async function updateShipmentLine(lineId, shippedQty, unitPrice) {
+  const { error } = await supabase.from("shipment_lines").update({ shipped_qty: shippedQty, unit_price: unitPrice }).eq("id", lineId);
   if (error) throw error;
 }
 
@@ -103,4 +114,38 @@ export async function getShipmentLinesForOrders(orderIds) {
     byOrder.get(l.order_id).push(l);
   }
   return byOrder;
+}
+
+/* Locking -- enforced at the RLS level (Migration 28), not just hidden in
+   the UI. Once locked, shipment_lines writes for this shipment are
+   rejected by the database regardless of what the client attempts.
+   Unlocking requires Manager/Admin and a real reason -- both checked
+   server-side too, so this isn't a UI-only guard. */
+export async function lockShipment(shipmentId) {
+  const { data, error } = await supabase.rpc("lock_shipment", { p_shipment_id: shipmentId });
+  if (error) throw error;
+  return data;
+}
+
+export async function unlockShipment(shipmentId, reason) {
+  const { data, error } = await supabase.rpc("unlock_shipment", { p_shipment_id: shipmentId, p_reason: reason });
+  if (error) throw error;
+  return data;
+}
+
+/* Line count + total value per shipment, in one bulk query -- so the
+   Shipments list can show at a glance which ones actually have real data
+   entered ("3 lines, $12,450") vs. which are still empty, without an N+1
+   query per row. */
+export async function getShipmentLineTotals(shipmentIds) {
+  if (!shipmentIds.length) return new Map();
+  const { data, error } = await supabase.from("shipment_lines").select("shipment_id, shipped_qty, shipment_value").in("shipment_id", shipmentIds);
+  if (error) throw error;
+  const totals = new Map();
+  for (const l of data) {
+    const t = totals.get(l.shipment_id) || { lineCount: 0, totalQty: 0, totalValue: 0 };
+    t.lineCount += 1; t.totalQty += l.shipped_qty; t.totalValue += l.shipment_value || 0;
+    totals.set(l.shipment_id, t);
+  }
+  return totals;
 }

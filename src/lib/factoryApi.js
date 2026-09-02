@@ -64,3 +64,20 @@ export async function submitCrdUpdate(orderIds, newCrd, remarks) {
   }
   return results;
 }
+
+/* Full CRD history for one order -- reuses crd_updates entirely (already
+   has previous_crd, entered_by_name/entered_by_user_id, created_at, no
+   new table). Resolves "who submitted it" to the factory's own name when
+   the entry came from a real portal user (via their linked_factory_code),
+   falling back to the free-text entered_by_name for CDS-API-sourced rows
+   that have no user account behind them. */
+export async function getCrdHistory(orderId) {
+  const { data, error } = await supabase.from("crd_updates")
+    .select("id, previous_crd, new_crd, source, entered_by_name, remarks, created_at, profiles!crd_updates_entered_by_user_id_fkey(full_name, linked_factory_code, factories(name))")
+    .eq("order_id", orderId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(row => ({
+    ...row,
+    submittedByLabel: row.profiles?.factories?.name || row.profiles?.full_name || row.entered_by_name || "—",
+  }));
+}

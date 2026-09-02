@@ -19,9 +19,31 @@ export default function RequireModule({ module, action = "view", fallback, child
   useEffect(() => {
     let cancelled = false;
     setAllowed(null);
-    hasModulePermission(module, action).then(result => {
-      if (!cancelled) setAllowed(result);
-    });
+
+    async function check() {
+      try {
+        const result = await hasModulePermission(module, action);
+        if (!cancelled) setAllowed(result);
+      } catch (e) {
+        // A genuine error (network hiccup, a transient auth-token-refresh
+        // race) is not the same thing as the permission check actually
+        // returning false -- retrying once, rather than immediately
+        // treating any failure as "denied," is what stops a brief
+        // transient error from bouncing the user to fallback for a route
+        // they genuinely have access to. Confirmed as the real mechanism
+        // behind "switch tabs, come back, land on Dashboard."
+        console.error(`Permission check failed for ${module}/${action}, retrying once:`, e);
+        try {
+          const retryResult = await hasModulePermission(module, action);
+          if (!cancelled) setAllowed(retryResult);
+        } catch (e2) {
+          console.error(`Permission check failed again for ${module}/${action}:`, e2);
+          if (!cancelled) setAllowed(false);
+        }
+      }
+    }
+    check();
+
     return () => { cancelled = true; };
   }, [module, action]);
 

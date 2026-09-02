@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useParams, Link, useOutletContext } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { useParams, Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   getOrder, getOrderColorWays, getOrderSamples, getOrderCrdHistory,
   assignFactory, getAuditLog, getMilestoneTypesFull, getOrderMilestones, saveMilestoneField, getFilterOptions, editOrder, addMasterDataValue,
@@ -52,7 +52,15 @@ const TABS = [
 export default function OrderDetail() {
   const { id } = useParams();
   const { dateFormat } = useOutletContext();
-  const [tab, setTab] = useState("overview");
+  /* Deep-linkable tabs. A notification in the AI Assistant links straight to
+     the tab that fixes it — ?tab=tna&milestone=fit_sample — so a merchandiser
+     lands on the field they have to update instead of the Orders list with a
+     search box. An unknown or absent tab falls back to Overview, exactly as
+     before, so every existing link still behaves the same. */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const highlightMilestone = searchParams.get("milestone") || null;
+  const [tab, setTab] = useState(TABS.some(t => t.key === requestedTab) ? requestedTab : "overview");
   const [showSheet, setShowSheet] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
@@ -130,7 +138,10 @@ export default function OrderDetail() {
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: 8, marginBottom: 4 }}>
         <div>
-          <div className="mono strong" style={{ fontSize: 22 }}>{order.po_prefix}{order.po_number}</div>
+          <div className="mono strong" style={{ fontSize: 22 }}>
+            {order.po_prefix}{order.po_number}
+            {order.delivery_sequence > 1 && <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 600, color: "#B45309", background: "#FEF3C7", padding: "2px 8px", borderRadius: 6 }}>Delivery {order.delivery_sequence}</span>}
+          </div>
           <div style={{ color: "#6B7280", fontSize: 13 }}>
             {order.style} · {order.labels?.name || "—"} · {order.divisions?.name || "—"} · {order.customers?.name || "—"} · {order.season || "—"}
           </div>
@@ -145,7 +156,7 @@ export default function OrderDetail() {
 
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid #E5E7EB", marginBottom: 20 }}>
         {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => { setTab(t.key); setSearchParams(t.key === "overview" ? {} : { tab: t.key }, { replace: true }); }}
             style={{
               padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 13,
               color: tab === t.key ? "#101B30" : "#6B7280", fontWeight: tab === t.key ? 600 : 400,
@@ -157,8 +168,8 @@ export default function OrderDetail() {
       {tab === "overview" && <OverviewTab order={order} colorWays={colorWays} milestones={milestones} crdHistory={crdHistory} dateFormat={dateFormat} />}
       {tab === "timeline" && <TimelineTab order={order} milestones={milestones} dateFormat={dateFormat} />}
       {tab === "factory" && <FactoryTab order={order} factories={factories} onAssigned={refresh} />}
-      {tab === "tna" && <TnaTab order={order} colorWays={colorWays} milestones={milestones} milestoneTypes={milestoneTypes.filter(mt => colPrefs?.[mt.key])} onSaved={refresh} />}
-      {tab === "samples" && <SamplesTab order={order} colorWays={colorWays} samples={samples} milestones={milestones} />}
+      {tab === "tna" && <TnaTab order={order} colorWays={colorWays} milestones={milestones} milestoneTypes={milestoneTypes.filter(mt => colPrefs?.[mt.key])} onSaved={refresh} highlightMilestone={highlightMilestone} />}
+      {tab === "samples" && <SamplesTab order={order} colorWays={colorWays} samples={samples} milestones={milestones} highlightMilestone={highlightMilestone} />}
       {tab === "shipment" && <ShipmentTab order={order} colorWays={colorWays} shipmentSummary={shipmentSummary} shipmentLines={shipmentLines} dateFormat={dateFormat} />}
       {tab === "activity" && <ActivityTab auditLog={auditLog} />}
 
@@ -378,12 +389,19 @@ function FactoryTab({ order, factories, onAssigned }) {
 }
 
 const TNA_STATUS_OPTIONS = [["done", "Done"], ["onTrack", "On Track"], ["atRisk", "Overdue"], ["critical", "Delayed"], ["pending", "Pending"]];
-function TnaRow({ label, milestone, orderId, milestoneKey, colorWayName, fieldType, onSaved }) {
+function TnaRow({ label, milestone, orderId, milestoneKey, colorWayName, fieldType, onSaved, highlighted }) {
   const [plan, setPlan] = useState(milestone?.plan_date || "");
   const [actual, setActual] = useState(milestone?.actual_date || "");
   const [status, setStatus] = useState(milestone?.status || "pending");
   const [remarks, setRemarks] = useState(milestone?.remarks || "");
   const [saving, setSaving] = useState(false);
+  /* When arrived at from an alert, put the row on screen and mark it — the
+     point of the deep link is that the user does not have to hunt for the
+     milestone once they get here. */
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (highlighted && rowRef.current) rowRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlighted]);
 
   async function persist(fields) {
     setSaving(true);
@@ -392,7 +410,7 @@ function TnaRow({ label, milestone, orderId, milestoneKey, colorWayName, fieldTy
   }
 
   return (
-    <tr>
+    <tr ref={rowRef} className={highlighted ? "tna-row-highlight" : undefined}>
       <td>{label}</td>
       {fieldType === "pds" ? (
         <>
@@ -406,7 +424,7 @@ function TnaRow({ label, milestone, orderId, milestoneKey, colorWayName, fieldTy
   );
 }
 
-function TnaTab({ order, colorWays, milestones, milestoneTypes, onSaved }) {
+function TnaTab({ order, colorWays, milestones, milestoneTypes, onSaved, highlightMilestone }) {
   if (!order.factory_code) {
     return <div className="card" style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 28 }}>🏭</div><div style={{ fontWeight: 600, margin: "8px 0" }}>Assign a factory first</div><p className="muted-sm">T&amp;A milestones and plan dates depend on the factory's lead times.</p></div>;
   }
@@ -422,13 +440,23 @@ function TnaTab({ order, colorWays, milestones, milestoneTypes, onSaved }) {
   });
   return (
     <div className="card no-pad">
-      <div style={{ fontWeight: 600, padding: "16px 18px 0" }}>Critical path — scroll to see all milestones</div>
+      <div style={{ fontWeight: 600, padding: "16px 18px 0" }}>
+        Critical path — scroll to see all milestones
+        {highlightMilestone && (
+          <span className="rc-badge neutral" style={{ marginLeft: 10, fontWeight: 500 }}>
+            {/* The alert names the milestone in the words the T&A grid uses, not
+                the database key — a merchandiser reads "Fabric In-house", not
+                "fab_inhouse". */}
+            jumped here from an alert · {(milestoneTypes.find(mt => mt.key === highlightMilestone) || {}).label || highlightMilestone} highlighted
+          </span>
+        )}
+      </div>
       <p className="muted-sm" style={{ padding: "0 18px" }}>Remarks are real and editable — they carry through to Reports Center and exports.</p>
       <div className="tna-scroll">
         <table className="data-table tna-table">
           <thead><tr><th>Milestone</th><th>Plan Date</th><th>Actual Date</th><th>Status</th><th>Remarks</th></tr></thead>
           <tbody>
-            {rows.map((r, i) => <TnaRow key={i} label={r.label} milestone={r.milestone} orderId={order.id} milestoneKey={r.milestoneKey} colorWayName={r.colorWayName} fieldType={r.fieldType} onSaved={onSaved} />)}
+            {rows.map((r, i) => <TnaRow key={i} label={r.label} milestone={r.milestone} orderId={order.id} milestoneKey={r.milestoneKey} colorWayName={r.colorWayName} fieldType={r.fieldType} onSaved={onSaved} highlighted={highlightMilestone === r.milestoneKey} />)}
           </tbody>
         </table>
       </div>
@@ -442,7 +470,7 @@ function SamplePill({ status }) {
   return <span className="pill" style={{ color, background: bg }}>{label}</span>;
 }
 
-function SamplesTab({ order, colorWays, samples, milestones }) {
+function SamplesTab({ order, colorWays, samples, milestones, highlightMilestone }) {
   if (!order.factory_code) return <div className="card" style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 28 }}>📋</div><div style={{ fontWeight: 600, margin: "8px 0" }}>No sample rounds yet</div><p className="muted-sm">Sample tracking begins once a factory is assigned.</p></div>;
   const byKey = {};
   milestones.forEach(m => { byKey[`${m.milestone_key}|${m.color_way_name || ""}`] = m; });
@@ -682,7 +710,8 @@ function CancellationModal({ order, onClose, onDone }) {
     Promise.all([
       getPoCancellationRequestForPo(order.po_prefix, order.po_number),
       hasModulePermission("orders", "approve"),
-    ]).then(([req, approve]) => { setExisting(req); setCanApprove(approve); setLoading(false); });
+    ]).then(([req, approve]) => { setExisting(req); setCanApprove(approve); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
   }, [order.po_prefix, order.po_number]);
 
   async function submit() {

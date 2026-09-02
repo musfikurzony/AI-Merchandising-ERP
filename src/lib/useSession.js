@@ -41,10 +41,23 @@ export function useSession() {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       if (session) {
-        setLoading(true);
+        // TOKEN_REFRESHED fires automatically whenever the tab regains
+        // focus after being backgrounded -- a normal Supabase SDK
+        // behavior, not a genuine sign-in. Previously this set
+        // loading=true unconditionally, which unmounted the entire
+        // route tree (App.jsx renders a bare "Loading..." screen while
+        // loading is true) and remounted it once the profile refetch
+        // finished -- confirmed as the actual cause of "switch tabs,
+        // come back, land on Dashboard": the route tree was being torn
+        // down and rebuilt on every tab switch, not preserved. The
+        // profile still refreshes on every event either way (so a role
+        // change while away is still picked up), just without visibly
+        // resetting the page for the overwhelmingly common case where
+        // nothing actually changed.
+        if (event !== "TOKEN_REFRESHED") setLoading(true);
         await loadProfile(session.user.id);
         setLoading(false);
       } else {

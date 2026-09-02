@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useSession } from "./lib/useSession.js";
 import { ROLE_LANDING_ROUTE } from "./lib/permissions.js";
 import { supabase } from "./lib/supabaseClient.js";
@@ -8,8 +8,10 @@ import UserManagement from "./pages/admin/UserManagement.jsx";
 import RoleManagement from "./pages/admin/RoleManagement.jsx";
 import OrganizationSettings from "./pages/admin/OrganizationSettings.jsx";
 import AuditTrail from "./pages/admin/AuditTrail.jsx";
-import DashboardLanding from "./pages/DashboardLanding.jsx";
-import ExecutiveLanding from "./pages/ExecutiveLanding.jsx";
+import Dashboard from "./pages/dashboard/Dashboard.jsx";
+import ExecutiveDashboard from "./pages/executive/ExecutiveDashboard.jsx";
+import BackupExport from "./pages/data/BackupExport.jsx";
+import AiAssistant from "./pages/ai/AiAssistant.jsx";
 import FactoryPortalLayout from "./pages/factory/FactoryPortalLayout.jsx";
 import FactoryMyOrders from "./pages/factory/FactoryMyOrders.jsx";
 import OrdersList from "./pages/orders/OrdersList.jsx";
@@ -19,9 +21,13 @@ import Workbench from "./pages/workbench/Workbench.jsx";
 import FollowUpReport from "./pages/follow-up/FollowUpReport.jsx";
 import CrdChangeMonitoring from "./pages/crd-monitoring/CrdChangeMonitoring.jsx";
 import KpiDashboard from "./pages/kpi-dashboard/KpiDashboard.jsx";
+import ReportsCenter from "./pages/reports/ReportsCenter.jsx";
+import OnTimePerformance from "./pages/reports/OnTimePerformance.jsx";
 import ShippingLanding from "./pages/ShippingLanding.jsx";
+import ShippingReports from "./pages/ShippingReports.jsx";
 import RequireModule from "./components/RequireModule.jsx";
 import ErpShell from "./components/ErpShell.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import ComingSoon from "./components/ComingSoon.jsx";
 
 function LoginScreen({ signIn }) {
@@ -109,6 +115,18 @@ function ForcePasswordChange({ userId }) {
   );
 }
 
+/* Shown only on the layouts that genuinely have no sign-out of their own. */
+function FloatingSignOut({ signOut }) {
+  const { pathname } = useLocation();
+  const needsIt = pathname.startsWith("/admin") || pathname.startsWith("/factory");
+  if (!needsIt) return null;
+  return (
+    <button onClick={signOut} className="btn-outline" style={{ position: "fixed", top: 12, right: 12, zIndex: 50 }}>
+      Sign Out
+    </button>
+  );
+}
+
 export default function App() {
   const { session, profile, loading, signIn, signOut } = useSession();
 
@@ -129,11 +147,12 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to={landing} replace />} />
 
         <Route element={<ErpShell profile={profile} signOut={signOut} />}>
-          <Route path="/dashboard" element={<DashboardLanding profile={profile} />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/workbench" element={<RequireModule module="workbench" fallback={landing}><Workbench /></RequireModule>} />
           <Route path="/orders" element={<RequireModule module="orders" fallback={landing}><OrdersList /></RequireModule>} />
           <Route path="/orders/:id" element={<RequireModule module="orders" fallback={landing}><OrderDetail /></RequireModule>} />
@@ -150,11 +169,40 @@ export default function App() {
               will be proposed before Milestones 3 and 11 respectively, when
               there's real functionality behind them worth protecting. */}
           <Route path="/plm-import" element={<RequireModule module="plm_import" fallback={landing}><PlmImportCenter /></RequireModule>} />
-          <Route path="/backup-export" element={<ComingSoon title="Backup & Export" subtitle="Controlled Data Export" />} />
-          <Route path="/executive-dashboard" element={<RequireModule module="executive_dashboard" fallback={landing}><ExecutiveLanding profile={profile} /></RequireModule>} />
+          {/* Backup & Export guards itself: it checks the 'backup_export' module
+              permission and falls back to requiring Administration access until
+              that key is seeded (proposed migration 36). Wrapping it in
+              RequireModule with a key that may not exist yet would bounce every
+              user, including admins -- confirmed as the wrong failure mode. */}
+          <Route path="/backup-export" element={<BackupExport />} />
+          <Route path="/executive-dashboard" element={<RequireModule module="executive_dashboard" fallback={landing}><ExecutiveDashboard /></RequireModule>} />
           <Route path="/kpi-dashboard" element={<RequireModule module="kpi_dashboard" fallback={landing}><KpiDashboard /></RequireModule>} />
-          <Route path="/reports" element={<RequireModule module="reports" fallback={landing}><ComingSoon title="Reports Center" subtitle="Professional Reporting" /></RequireModule>} />
-          <Route path="/ai-assistant" element={<RequireModule module="ai_assistant" fallback={landing}><ComingSoon title="AI Assistant" subtitle="ERP-Aware Assistant" /></RequireModule>} />
+          <Route path="/reports" element={<RequireModule module="reports" fallback={landing}><ReportsCenter /></RequireModule>} />
+          {/* On-Time Performance gets its own route rather than living as a
+              tab inside Reports Center: it is the report management asks
+              for by name, it has its own period/generate flow, and a
+              direct URL means it can be bookmarked and linked to. It reuses
+              the same 'reports' module permission -- no new permission
+              concept invented. */}
+          <Route path="/reports/on-time" element={<RequireModule module="reports" fallback={landing}><OnTimePerformance /></RequireModule>} />
+          {/* The AI Assistant guards itself the same way Backup & Export does: it
+              checks the 'ai_assistant' module key and falls back to any user who
+              can see Orders, rather than RequireModule bouncing everyone while
+              that key is unseeded (proposed migration 36 seeds it). */}
+          <Route path="/ai-assistant" element={<AiAssistant />} />
+          {/* Confirmed via direct testing: Shipping's underlying permissions
+              (module_permissions + role_permissions + has_module_permission())
+              were never broken -- a real Shipping test user correctly
+              resolves dashboard/reports access. The reported symptom was
+              purely structural: /shipping previously stood entirely outside
+              ErpShell (like /factory), so a Shipping user landing there had
+              no sidebar and no way to reach Dashboard/Orders/Reports even
+              though they were genuinely permitted. Moving it into this same
+              wrapped group -- not a hardcoded escape-hatch link -- gives
+              Shipping the same consistent navigation structure every other
+              ERP role already has. */}
+          <Route path="/shipping/:shipmentId?" element={<RequireModule module="shipping_portal" fallback={landing}><ShippingLanding profile={profile} /></RequireModule>} />
+          <Route path="/shipping-reports" element={<RequireModule module="shipping_portal" fallback={landing}><ShippingReports /></RequireModule>} />
         </Route>
 
         <Route path="/admin" element={<RequireModule module="administration" fallback={landing}><AdminLayout homeTo={landing} /></RequireModule>}>
@@ -168,10 +216,15 @@ export default function App() {
         <Route path="/factory" element={<RequireModule module="factory_portal" fallback={landing}><FactoryPortalLayout /></RequireModule>}>
           <Route index element={<FactoryMyOrders />} />
         </Route>
-        <Route path="/shipping" element={<RequireModule module="shipping_portal" fallback={landing}><ShippingLanding profile={profile} /></RequireModule>} />
         <Route path="*" element={<Navigate to={landing} replace />} />
       </Routes>
-      <button onClick={signOut} style={{ position: "fixed", top: 12, right: 12 }}>Sign Out</button>
+      </ErrorBoundary>
+      {/* The floating Sign Out is only for layouts that have no header or
+          sidebar of their own (/admin, /factory). ErpShell now carries its
+          own Sign Out in the sidebar footer, so rendering this one there
+          too would overlap the redesigned header -- a real cosmetic defect
+          the previous unconditional version had. */}
+      <FloatingSignOut signOut={signOut} />
     </BrowserRouter>
   );
 }

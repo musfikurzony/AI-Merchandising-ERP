@@ -10,6 +10,7 @@ const BASE_SELECT = `
   id, po_prefix, po_number, style, season, qty, etd, revised_etd, order_rcv_date,
   status, risk, factory_code, primary_merchandiser_id, created_at, fabric_ref,
   customer_code, product_group_code, label_code, division_code, business_unit_code,
+  delivery_sequence, split_from_order_id,
   product_groups(code, name), product_categories(name), labels(code, name),
   divisions(code, name), business_units(code, name), customers(code, name), factories(name),
   profiles!orders_primary_merchandiser_id_fkey(full_name)
@@ -22,20 +23,20 @@ const BASE_SELECT = `
    database view, since orders (unlike factory_portal_orders) is a real
    table multiple different screens read from with different field needs. */
 export async function canViewFob() {
-  return hasPermission("view_fob");
+  try { return await hasPermission("view_fob"); }
+  catch (e) { console.error("canViewFob check failed, defaulting to hidden:", e); return false; }
 }
 
 export async function listOrders(filters = {}) {
   const canFob = await canViewFob();
   let query = supabase.from("orders").select(canFob ? `${BASE_SELECT}, fob` : BASE_SELECT).eq("is_deleted", false);
 
-  if (filters.po) query = query.or(`po_prefix.ilike.%${filters.po}%,po_number.ilike.%${filters.po}%`);
-  if (filters.style) query = query.ilike("style", `%${filters.style}%`);
   if (filters.customerCode) query = query.eq("customer_code", filters.customerCode);
   if (filters.labelCode) query = query.eq("label_code", filters.labelCode);
   if (filters.productGroupCode) query = query.eq("product_group_code", filters.productGroupCode);
   if (filters.factoryCode) query = query.eq("factory_code", filters.factoryCode);
   if (filters.status) query = query.eq("status", filters.status);
+  if (filters.excludeStatus) query = query.neq("status", filters.excludeStatus);
   if (filters.risk) query = query.eq("risk", filters.risk);
   if (filters.etdFrom) query = query.gte("etd", filters.etdFrom);
   if (filters.etdTo) query = query.lte("etd", filters.etdTo);
@@ -60,10 +61,14 @@ export async function getOrderColorWays(orderId) {
   return data;
 }
 
+/* Same truncation class as the reporting fetches: this is called with every
+   order id in a report, so both the row ceiling and the URL length limit
+   apply. Routed through the shared paged/chunked helper — the Orders Excel
+   export and the Shipping Invoice report both read colour quantities from
+   here, and a short read would understate ordered quantity per colour. */
 export async function getOrderColorWaysForOrders(orderIds) {
-  if (!orderIds.length) return new Map();
-  const { data, error } = await supabase.from("order_color_ways").select("*").in("order_id", orderIds).order("name");
-  if (error) throw error;
+  if (!orderIds || !orderIds.length) return new Map();
+  const data = await fetchAllByIds("order_color_ways", "*", "order_id", orderIds, { order: "order_id" });
   const byOrder = new Map();
   for (const cw of data) {
     if (!byOrder.has(cw.order_id)) byOrder.set(cw.order_id, []);
@@ -78,11 +83,6 @@ export async function getOrderSamples(orderId) {
   return data;
 }
 
-export async function getOrderShipment(orderId) {
-  const { data, error } = await supabase.from("order_shipments").select("*").eq("order_id", orderId).maybeSingle();
-  if (error) throw error;
-  return data;
-}
 
 export async function getOrderCrdHistory(orderId) {
   const { data, error } = await supabase.from("crd_updates").select("*").eq("order_id", orderId).order("created_at", { ascending: false });
@@ -204,6 +204,16 @@ export async function getOrderMilestones(orderId) {
   const { data, error } = await supabase.from("order_milestones").select("*").eq("order_id", orderId);
   if (error) throw error;
   return data;
+}
+
+/* Ex-Factory specifically, bulk, for the Excel export -- one row per
+   order since ex_factory is style-level, not color-level. */
+export async function getExFactoryMilestonesForOrders(orderIds) {
+  if (!orderIds.length) return new Map();
+  const { data, error } = await supabase.from("order_milestones")
+    .select("order_id, plan_date, actual_date, status, updated_at").eq("milestone_key", "ex_factory").in("order_id", orderIds);
+  if (error) throw error;
+  return new Map(data.map(m => [m.order_id, m]));
 }
 
 export async function getMilestoneTypesFull() {
@@ -334,6 +344,25 @@ export async function getPoCancellationRequests(status) {
   return data;
 }
 
+/* The approved cancellation record for one specific PO -- reuses
+   po_cancellation_requests exactly as-is, no duplicate cancellation
+   fields anywhere. Also returns how many styles the PO actually had at
+   cancellation time, so the details view can state plainly that the
+   whole PO was cancelled, not just the one style the user happened to
+   click into. */
+export async function getPoCancellationDetails(poPrefix, poNumber) {
+  const [{ data: request, error: reqErr }, { data: styles, error: styleErr }] = await Promise.all([
+    supabase.from("po_cancellation_requests")
+      .select("*, requested_profile:profiles!po_cancellation_requests_requested_by_fkey(full_name), reviewed_profile:profiles!po_cancellation_requests_reviewed_by_fkey(full_name)")
+      .eq("po_prefix", poPrefix).eq("po_number", poNumber).eq("status", "approved")
+      .order("reviewed_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("orders").select("style").eq("po_prefix", poPrefix).eq("po_number", poNumber).eq("is_deleted", false),
+  ]);
+  if (reqErr) throw reqErr;
+  if (styleErr) throw styleErr;
+  return { request, styleCount: styles?.length || 0 };
+}
+
 export async function getPoCancellationRequestForPo(poPrefix, poNumber) {
   const { data, error } = await supabase.from("po_cancellation_requests")
     .select("*").eq("po_prefix", poPrefix).eq("po_number", poNumber).eq("status", "pending").maybeSingle();
@@ -349,6 +378,18 @@ export async function approvePoCancellation(requestId, reviewNote) {
 
 export async function rejectPoCancellation(requestId, reviewNote) {
   const { data, error } = await supabase.rpc("reject_po_cancellation", { p_request_id: requestId, p_review_note: reviewNote || null });
+  if (error) throw error;
+  return data;
+}
+
+/* Creates a new "Delivery N" order for the remaining balance when a
+   short shipment is a genuine future delivery, not a permanent
+   shortfall -- confirmed design: same PO/style, its own ETD/status/
+   Ex-Factory timeline from here, sample approvals carried forward so
+   nobody re-does already-approved work. colorBalances is a plain object,
+   e.g. { "MAIN": 10 }. Returns the new order's id. */
+export async function splitOrderDelivery(orderId, colorBalances) {
+  const { data, error } = await supabase.rpc("split_order_delivery", { p_order_id: orderId, p_color_balances: colorBalances });
   if (error) throw error;
   return data;
 }

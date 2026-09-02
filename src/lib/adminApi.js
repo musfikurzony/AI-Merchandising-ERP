@@ -134,7 +134,19 @@ export async function getOrganizationSettings() {
 
 export async function updateOrganizationSettings(fields) {
   const { error } = await supabase.from("organization_settings").update(fields).eq("id", true);
-  if (error) throw error;
+  if (!error) return;
+  /* fiscal_year_start_month arrives with migration 37. On a deployment that
+     has not run it, Postgres rejects the whole UPDATE for one unknown column
+     and the administrator loses their company-name edit as well. Retrying
+     without that field saves what CAN be saved, and the caller is told which
+     part did not stick rather than being shown a generic failure. */
+  if (/fiscal_year_start_month/.test(error.message || "") && "fiscal_year_start_month" in fields) {
+    const { fiscal_year_start_month, ...rest } = fields;
+    const retry = await supabase.from("organization_settings").update(rest).eq("id", true);
+    if (retry.error) throw retry.error;
+    throw new Error("Saved, except the fiscal year start month — that setting needs migration 37 to be applied first.");
+  }
+  throw error;
 }
 
 export async function listSystemSettings() {

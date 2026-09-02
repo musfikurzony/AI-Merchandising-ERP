@@ -57,19 +57,35 @@ body {
 .filter-chip.active { background: #101B30; color: #fff; border-color: #101B30; }
 
 .tna-scroll { overflow-x: auto; }
-.wb-table { min-width: 2700px; font-size: 11.5px; border-collapse: separate; border-spacing: 0; }
+/* Width and layout are set inline from the column model — see
+   src/lib/workbenchColumns.js. */
+.wb-table { font-size: 11.5px; border-collapse: separate; border-spacing: 0; }
 .wb-table th { white-space: nowrap; padding: 6px 8px; }
 .wb-table td { padding: 4px 6px; box-sizing: border-box; }
 .wb-frozen { position: sticky; background: #fff; z-index: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
-.wb-frozen-0 { left: 0px; width: 28px; min-width: 28px; max-width: 28px; border-right: 1px solid #E5E7EB; text-align: center; }
-.wb-frozen-1 { left: 28px; width: 78px; min-width: 78px; max-width: 78px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-2 { left: 106px; width: 82px; min-width: 82px; max-width: 82px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-3 { left: 188px; width: 84px; min-width: 84px; max-width: 84px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-4 { left: 272px; width: 56px; min-width: 56px; max-width: 56px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-5 { left: 328px; width: 50px; min-width: 50px; max-width: 50px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-6 { left: 378px; width: 46px; min-width: 46px; max-width: 46px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-7 { left: 424px; width: 46px; min-width: 46px; max-width: 46px; border-right: 1px solid #E5E7EB; }
-.wb-frozen-8 { left: 470px; width: 56px; min-width: 56px; max-width: 56px; border-right: 1px solid #E5E7EB; box-shadow: 3px 0 6px -2px rgba(0,0,0,0.18); overflow: visible; white-space: nowrap; text-align: center; }
+/* Frozen-column geometry now lives in src/lib/workbenchColumns.js and is
+   applied as inline styles: widths are data, and each column's `left` is
+   COMPUTED as the sum of the widths before it. The hand-maintained pixel
+   values that used to live here drifted out of step every time a column was
+   nudged, which is exactly how ETD, then Qty, then FOB each ended up too
+   narrow for their own contents. What remains here is only what doesn't
+   depend on width. */
+.wb-frozen-0 { border-right: 1px solid #E5E7EB; text-align: center; }
+.wb-frozen-1, .wb-frozen-2, .wb-frozen-3, .wb-frozen-4,
+.wb-frozen-5, .wb-frozen-6, .wb-frozen-7 { border-right: 1px solid #E5E7EB; }
+.wb-frozen-8 { border-right: 1px solid #E5E7EB; box-shadow: 3px 0 6px -2px rgba(0,0,0,0.18); overflow: visible; white-space: nowrap; text-align: center; }
+/* The two date columns never ellipsize -- they are sized for the longest
+   selectable format. Qty and FOB are right-aligned, as figures should be. */
+.wb-frozen-6, .wb-frozen-7 { text-overflow: clip; }
+.wb-num { text-align: right; }
+
+/* Resize handle: a hit target wider than the line it draws, so it can be
+   grabbed without pixel-hunting. Double-click auto-fits. */
+.wb-frozen th, .wb-table th.wb-frozen { position: sticky; }
+.wb-th-label { display: block; overflow: hidden; text-overflow: ellipsis; }
+.wb-resizer { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 4; }
+.wb-resizer::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: 4px; width: 1px; background: #D6D0C4; }
+.wb-resizer:hover::after, .wb-resizer.active::after { background: var(--pei-amber); width: 2px; left: 3.5px; }
 .wb-table tbody tr:nth-child(even) td:not(.wb-frozen) { background: #FAFBFC; }
 .wb-table tbody tr:nth-child(even) td.wb-frozen { background: #FAFBFC; }
 .wb-row-selected td:not(.wb-frozen) { background: #F0F7F6; }
@@ -114,3 +130,727 @@ body {
 .edit-field input, .edit-field select { padding: 8px 10px; border: 1px solid #E2E5EA; border-radius: 6px; font-size: 13px; color: #1A2233; }
 .sortable { cursor: pointer; user-select: none; }
 .sortable:hover { color: #101B30; }
+
+/* ==========================================================================
+   PEI DESIGN SYSTEM v80 — ported from the Shipment Control prototype.
+   One token layer the whole app reads from, so a colour is defined once
+   here rather than repeated as a literal in twenty components. Existing
+   class names (.card/.data-table/.btn-primary/.chip) are RESTYLED against
+   these tokens rather than replaced, so every screen already using them
+   inherits the new look without being rewritten.
+   ========================================================================== */
+:root {
+  --pei-navy:        #13253F;
+  --pei-navy-2:      #1B3252;
+  --pei-navy-line:   rgba(255,255,255,0.09);
+  --pei-amber:       #DFA23C;
+  --pei-amber-dark:  #C4872A;
+  --pei-amber-soft:  #FBF1DE;
+  --pei-page:        #F5F2EC;
+  --pei-surface:     #FFFFFF;
+  --pei-border:      #E7E2D8;
+  --pei-border-soft: #F0ECE4;
+  --pei-ink:         #1B2434;
+  --pei-ink-2:       #4B5563;
+  --pei-muted:       #6B7280;
+  --pei-faint:       #9AA0AA;
+  /* Delay-band scale — ordered worst-to-best deliberately so the same four
+     values drive the donut, the table swatches and the vendor columns. */
+  --band-ontime:     #2E9E7B;
+  --band-w1:         #DDA83F;
+  --band-w2:         #D2552A;
+  --band-late:       #8E2E1E;
+  --pei-good-bg:     #E8F5EF;  --pei-good-fg: #1F7A5C;
+  --pei-bad-bg:      #FDECEA;  --pei-bad-fg:  #B3261E;
+  --pei-radius:      12px;
+}
+
+body { background: var(--pei-page); color: var(--pei-ink); }
+
+/* --- page scaffolding ---------------------------------------------------- */
+.rc-page { padding: 26px 28px 60px; }
+.rc-page-head { margin-bottom: 20px; }
+.rc-page-head h2 { margin: 0 0 3px; font-size: 21px; font-weight: 650; letter-spacing: -0.2px; }
+.rc-page-head p { margin: 0; font-size: 13px; color: var(--pei-muted); }
+.rc-head-row { display: flex; align-items: flex-start; gap: 16px; }
+.rc-head-row > .rc-head-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.card, .rc-card {
+  background: var(--pei-surface); border: 1px solid var(--pei-border);
+  border-radius: var(--pei-radius); padding: 18px;
+}
+.card.no-pad, .rc-card.no-pad { padding: 0; }
+.rc-card-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.rc-card-title { font-size: 14.5px; font-weight: 650; }
+.rc-card-note { margin-left: auto; font-size: 11.5px; color: var(--pei-faint); }
+.rc-grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 18px; }
+@media (max-width: 1100px) { .rc-grid-2 { grid-template-columns: minmax(0,1fr); } }
+
+/* --- buttons ------------------------------------------------------------- */
+.btn-amber {
+  background: var(--pei-amber); color: #2A1D06; border: 1px solid var(--pei-amber);
+  padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 650; cursor: pointer;
+}
+.btn-amber:hover:not(:disabled) { background: var(--pei-amber-dark); border-color: var(--pei-amber-dark); }
+.btn-amber:disabled { opacity: .5; cursor: not-allowed; }
+.btn-outline {
+  background: var(--pei-surface); color: var(--pei-ink); border: 1px solid var(--pei-border);
+  padding: 8px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 550; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-outline:hover:not(:disabled) { background: #FAF8F4; border-color: #D8D2C6; }
+.btn-outline:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--pei-navy); border: 1px solid var(--pei-navy); border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; }
+.btn-primary:hover { background: var(--pei-navy-2); }
+.btn-ghost-sm { border-color: var(--pei-border); border-radius: 8px; }
+
+/* Segmented control — the prototype's Fiscal year / Date range toggle. */
+.seg { display: inline-flex; background: #EFEBE3; border: 1px solid var(--pei-border); border-radius: 9px; padding: 3px; }
+.seg button { border: none; background: none; padding: 6px 15px; border-radius: 7px; font-size: 12.5px; color: var(--pei-ink-2); cursor: pointer; font-weight: 550; }
+.seg button.active { background: var(--pei-surface); color: var(--pei-ink); box-shadow: 0 1px 2px rgba(0,0,0,.09); }
+
+.chip { border-color: var(--pei-border); border-radius: 8px; font-weight: 550; color: var(--pei-ink-2); }
+.chip.active { background: var(--pei-navy); border-color: var(--pei-navy); color: #fff; }
+.filter-chip { border-color: var(--pei-border); border-radius: 8px; }
+.filter-chip.active { background: var(--pei-navy); border-color: var(--pei-navy); }
+.filter-row select, .filter-row input { border: 1px solid var(--pei-border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; background: var(--pei-surface); color: var(--pei-ink); }
+.field-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--pei-faint); font-weight: 600; margin-bottom: 5px; display: block; }
+
+/* --- tables -------------------------------------------------------------- */
+.data-table th, .rc-table th {
+  font-size: 10.5px; letter-spacing: .55px; text-transform: uppercase; font-weight: 650;
+  color: var(--pei-faint); background: var(--pei-surface); border-bottom: 1px solid var(--pei-border);
+  padding: 11px 14px; text-align: left; white-space: nowrap;
+}
+.data-table td, .rc-table td { padding: 11px 14px; border-bottom: 1px solid var(--pei-border-soft); font-size: 13px; }
+.rc-table { width: 100%; border-collapse: collapse; }
+.rc-table .num, .data-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.rc-table tbody tr:hover td { background: #FCFAF6; }
+
+/* The totals row lives in a real <tfoot> — it is the LAST line of the
+   table, never a KPI strip floating above the chart. Sticky-bottom so it
+   stays visible while a long table scrolls inside its own container. */
+.rc-table tfoot td {
+  background: #F7F4EE; font-weight: 700; border-top: 2px solid var(--pei-border);
+  border-bottom: none; position: sticky; bottom: 0;
+}
+.rc-scroll { overflow-x: auto; max-height: 62vh; overflow-y: auto; }
+.rc-scroll thead th { position: sticky; top: 0; z-index: 2; }
+
+/* --- badges & swatches --------------------------------------------------- */
+.rc-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 650; }
+.rc-badge.good { background: var(--pei-good-bg); color: var(--pei-good-fg); }
+.rc-badge.bad  { background: var(--pei-bad-bg);  color: var(--pei-bad-fg); }
+.rc-badge.neutral { background: #F1EFEA; color: var(--pei-ink-2); }
+.rc-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 8px; vertical-align: middle; }
+.rc-legend { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 8px; font-size: 11.5px; color: var(--pei-ink-2); }
+
+/* --- sidebar ------------------------------------------------------------- */
+.pei-side { width: 232px; background: var(--pei-navy); color: #fff; display: flex; flex-direction: column; flex-shrink: 0; }
+.pei-brand { display: flex; align-items: center; gap: 11px; padding: 18px 18px 16px; border-bottom: 1px solid var(--pei-navy-line); text-decoration: none; color: inherit; }
+.pei-brand-tile { width: 30px; height: 30px; border-radius: 8px; background: var(--pei-amber); color: #2A1D06; font-weight: 800; font-size: 12.5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.pei-brand-name { font-weight: 650; font-size: 13.5px; line-height: 1.2; }
+.pei-brand-sub { font-size: 9.5px; letter-spacing: .7px; color: #8FA0BC; text-transform: uppercase; margin-top: 2px; }
+.pei-nav { flex: 1; overflow-y: auto; padding: 14px 0; }
+.pei-nav-group { margin-bottom: 16px; }
+.pei-nav-label { padding: 0 18px 7px; font-size: 9.5px; letter-spacing: 1px; color: #6E809E; font-weight: 700; }
+.pei-nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 18px; font-size: 13px; text-decoration: none; color: #BFC9DA; }
+.pei-nav-item:hover { color: #fff; background: rgba(255,255,255,0.04); }
+.pei-nav-item .dot { width: 5px; height: 5px; border-radius: 50%; background: #56698A; flex-shrink: 0; }
+.pei-nav-item.active { color: #fff; background: rgba(255,255,255,0.09); font-weight: 600; }
+.pei-nav-item.active .dot { background: var(--pei-amber); }
+.pei-side-foot { border-top: 1px solid var(--pei-navy-line); padding: 14px 18px; }
+.pei-side-foot .k { font-size: 9.5px; letter-spacing: .9px; color: #6E809E; font-weight: 700; }
+.pei-side-foot .n { font-size: 12.5px; font-weight: 600; margin-top: 5px; }
+.pei-side-foot .e { font-size: 10.5px; color: #8FA0BC; margin-top: 1px; word-break: break-all; }
+.pei-side-btn { background: rgba(255,255,255,0.08); border: none; color: #DCE3EE; font-size: 11.5px; padding: 7px 11px; border-radius: 7px; cursor: pointer; }
+.pei-side-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.pei-credit { font-size: 9.5px; color: #5C6E8C; margin-top: 12px; line-height: 1.5; }
+
+/* --- modals (preview-first exports) -------------------------------------- */
+.pv-backdrop { position: fixed; inset: 0; background: rgba(16,27,48,0.55); display: flex; align-items: center; justify-content: center; z-index: 300; padding: 24px; }
+.pv-box { background: var(--pei-surface); border-radius: 14px; width: 1080px; max-width: 100%; max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,.3); overflow: hidden; }
+.pv-head { padding: 18px 22px 14px; border-bottom: 1px solid var(--pei-border); }
+.pv-eyebrow { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--pei-faint); font-weight: 700; }
+.pv-title { font-size: 19px; font-weight: 650; margin: 6px 0 0; }
+.pv-meta { font-size: 11.5px; color: var(--pei-muted); margin-top: 5px; }
+.pv-body { padding: 18px 22px; overflow: auto; flex: 1; background: #FCFBF8; }
+.pv-foot { padding: 14px 22px; border-top: 1px solid var(--pei-border); display: flex; gap: 9px; align-items: center; background: var(--pei-surface); }
+.pv-foot .spacer { margin-left: auto; }
+.pv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.pv-tab { padding: 6px 13px; border-radius: 8px; border: 1px solid var(--pei-border); background: var(--pei-surface); font-size: 12.5px; cursor: pointer; color: var(--pei-ink-2); }
+.pv-tab.active { background: var(--pei-navy); border-color: var(--pei-navy); color: #fff; font-weight: 600; }
+.pv-sheet { background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: 10px; overflow: auto; max-height: 58vh; }
+.pv-sheet table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.pv-sheet th { position: sticky; top: 0; background: #F7F4EE; border-bottom: 1px solid var(--pei-border); padding: 8px 10px; text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-muted); white-space: nowrap; z-index: 1; }
+.pv-sheet td { padding: 7px 10px; border-bottom: 1px solid var(--pei-border-soft); white-space: nowrap; }
+.pv-sheet td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pv-note { font-size: 11.5px; color: var(--pei-muted); margin: 10px 2px 0; }
+
+/* The PDF preview page — deliberately sized to the same A4 landscape
+   proportion the generated PDF uses, so the preview is a real preview of
+   that document and not a differently-shaped screen view. */
+.pv-paper { background: #fff; border: 1px solid var(--pei-border); border-radius: 6px; padding: 30px 34px; box-shadow: 0 2px 10px rgba(0,0,0,.06); max-width: 1000px; margin: 0 auto; }
+.pv-paper .co { font-size: 9.5px; letter-spacing: .9px; font-weight: 700; color: var(--pei-muted); text-transform: uppercase; }
+.pv-paper h3 { font-size: 19px; margin: 10px 0 5px; font-weight: 650; }
+.pv-paper .meta { font-size: 10.5px; color: var(--pei-muted); border-bottom: 1px solid var(--pei-border); padding-bottom: 12px; }
+.pv-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.pv-kpi { border: 1px solid var(--pei-border); background: #FAF8F4; border-radius: 6px; padding: 10px 14px; min-width: 118px; }
+.pv-kpi .v { font-size: 16px; font-weight: 700; }
+.pv-kpi .l { font-size: 9.5px; color: var(--pei-muted); text-transform: uppercase; letter-spacing: .4px; margin-top: 3px; }
+.pv-paper table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.pv-paper thead th { background: var(--pei-navy); color: #fff; padding: 7px 9px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+.pv-paper tbody td { padding: 6px 9px; border-bottom: 1px solid #F1EEE8; }
+.pv-paper tbody tr:nth-child(even) td { background: #FAFAF8; }
+.pv-paper tfoot td { padding: 8px 9px; font-weight: 700; border-top: 2px solid var(--pei-navy); background: #F7F4EE; }
+.pv-paper .pfoot { margin-top: 16px; font-size: 9.5px; color: var(--pei-faint); display: flex; justify-content: space-between; border-top: 1px solid var(--pei-border); padding-top: 8px; }
+
+@media print {
+  .pv-backdrop { position: static; background: none; padding: 0; }
+  .pv-box { box-shadow: none; max-height: none; width: 100%; }
+  .pv-head, .pv-foot { display: none; }
+  .pv-body { background: #fff; padding: 0; overflow: visible; }
+  .pv-paper { border: none; box-shadow: none; max-width: none; padding: 0; }
+}
+
+/* ==========================================================================
+   v81 — corporate report chrome: header, universal filter bar, KPI band,
+   drill-down rows, backup module. Same token layer as v80.
+   ========================================================================== */
+.rpt-header { background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: var(--pei-radius); padding: 18px 20px 14px; margin-bottom: 18px; }
+.rpt-header-top { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--pei-border-soft); }
+.rpt-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rpt-logo { height: 34px; width: auto; max-width: 120px; object-fit: contain; }
+.rpt-logo-tile { width: 34px; height: 34px; border-radius: 8px; background: var(--pei-navy); color: var(--pei-amber); font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; letter-spacing: .5px; }
+.rpt-company { font-size: 13px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--pei-ink); }
+.rpt-company-sub { font-size: 11px; color: var(--pei-muted); margin-top: 2px; }
+.rpt-stamp { margin-left: auto; text-align: right; font-size: 11.5px; color: var(--pei-ink-2); line-height: 1.65; white-space: nowrap; }
+.rpt-stamp .k { color: var(--pei-faint); text-transform: uppercase; font-size: 9.5px; letter-spacing: .7px; font-weight: 700; margin-right: 6px; }
+.rpt-title-row { display: flex; align-items: flex-start; gap: 16px; padding-top: 13px; }
+.rpt-title { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -0.2px; }
+.rpt-subtitle { margin: 3px 0 0; font-size: 12.5px; color: var(--pei-muted); }
+.rpt-title-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.rpt-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+.rpt-chip { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #F4F1EA; color: var(--pei-ink-2); border: 1px solid var(--pei-border); }
+.rpt-chip.strong { background: var(--pei-navy); color: #fff; border-color: var(--pei-navy); font-weight: 650; }
+.rpt-chip.muted { background: none; color: var(--pei-faint); font-style: italic; }
+
+.rpt-filterbar { margin-bottom: 18px; padding: 14px 18px 16px; }
+.rpt-filter-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; padding: 7px 0; }
+.rpt-filter-row + .rpt-filter-row { border-top: 1px solid var(--pei-border-soft); }
+.rpt-field { display: flex; flex-direction: column; min-width: 0; }
+.rpt-field select, .rpt-field input { border: 1px solid var(--pei-border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; background: var(--pei-surface); color: var(--pei-ink); max-width: 210px; }
+.rpt-field-grow { flex: 1; min-width: 150px; }
+.rpt-resolved { font-size: 12px; color: var(--pei-ink-2); font-variant-numeric: tabular-nums; padding: 8px 0; }
+.rpt-hint { font-size: 11.5px; color: var(--pei-faint); align-self: center; margin-left: auto; max-width: 340px; }
+.rpt-grouping { background: #FAF8F3; margin: 7px -18px -16px; padding: 12px 18px 14px; border-radius: 0 0 var(--pei-radius) var(--pei-radius); }
+.btn-link { background: none; border: none; color: var(--pei-ink-2); font-size: 12.5px; cursor: pointer; text-decoration: underline; padding: 8px 2px; }
+.btn-link:hover { color: var(--pei-ink); }
+
+/* KPI band — the executive top line. Deliberately a band of equal tiles,
+   not cards of varying size: these are peers being compared. */
+.kpi-band { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 1px; background: var(--pei-border); border: 1px solid var(--pei-border); border-radius: var(--pei-radius); overflow: hidden; margin-bottom: 18px; }
+.kpi-tile { background: var(--pei-surface); padding: 15px 17px; }
+.kpi-tile .l { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--pei-faint); font-weight: 700; }
+.kpi-tile .v { font-size: 24px; font-weight: 700; margin-top: 7px; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+.kpi-tile .s { font-size: 11.5px; color: var(--pei-muted); margin-top: 4px; }
+.kpi-tile.accent { background: var(--pei-navy); }
+.kpi-tile.accent .l { color: #8FA0BC; }
+.kpi-tile.accent .v { color: #fff; }
+.kpi-tile.accent .s { color: #BFC9DA; }
+
+/* Drill-down child rows inside a grouped table. */
+.rc-table tr.rc-parent td { cursor: pointer; }
+.rc-table tr.rc-parent .twist { display: inline-block; width: 14px; color: var(--pei-faint); font-size: 10px; }
+.rc-table tr.rc-child td { background: #FBF9F5; font-size: 12.5px; color: var(--pei-ink-2); border-bottom: 1px solid var(--pei-border-soft); }
+.rc-table tr.rc-child td:first-child { padding-left: 36px; }
+.rc-table tr.rc-child:hover td { background: #F7F4ED; }
+
+/* Backup & Export */
+.bk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 12px; }
+.bk-item { border: 1px solid var(--pei-border); border-radius: 10px; padding: 13px 15px; display: flex; gap: 11px; align-items: flex-start; background: var(--pei-surface); }
+.bk-item.on { border-color: var(--pei-amber); background: #FEFBF4; }
+.bk-item input { margin-top: 3px; accent-color: var(--pei-amber); width: 15px; height: 15px; }
+.bk-item > span { display: block; min-width: 0; }
+.bk-item .n { font-size: 13px; font-weight: 600; display: block; }
+.bk-item .d { font-size: 11.5px; color: var(--pei-muted); margin-top: 3px; line-height: 1.45; display: block; }
+.bk-item .c { font-size: 11.5px; margin-top: 6px; font-variant-numeric: tabular-nums; color: var(--pei-ink-2); display: block; }
+.bk-note { border-left: 3px solid var(--pei-amber); background: #FEFBF4; padding: 12px 15px; border-radius: 0 8px 8px 0; font-size: 12.5px; color: var(--pei-ink-2); line-height: 1.6; }
+.bk-note.warn { border-left-color: var(--band-w2); background: #FDF3EF; }
+
+/* ==========================================================================
+   v82 — AI Assistant. Severity carries a colour AND a written label
+   everywhere (the colour is never the only signal), and each card ends in
+   an imperative rather than a statistic.
+   ========================================================================== */
+.ai-viewbar { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+
+.ai-plan { background: var(--pei-navy); color: #fff; border-radius: var(--pei-radius); padding: 20px 22px; margin-bottom: 18px; }
+.ai-plan-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+.ai-plan-eyebrow { font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; color: #8FA0BC; font-weight: 700; }
+.ai-plan h3 { margin: 6px 0 0; font-size: 18px; font-weight: 650; }
+.ai-plan-counts { margin-left: auto; display: flex; gap: 18px; font-size: 12px; color: #BFC9DA; }
+.ai-plan-counts strong { color: #fff; font-size: 16px; margin-right: 4px; }
+.ai-plan-empty { color: #BFC9DA; font-size: 13px; margin: 14px 0 0; max-width: 720px; }
+.ai-plan-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 9px; }
+.ai-plan-list li { display: flex; gap: 12px; align-items: flex-start; background: rgba(255,255,255,0.06); border-radius: 9px; padding: 11px 14px; font-size: 13px; border-left: 3px solid #56698A; }
+.ai-plan-list li.sev-critical { border-left-color: var(--band-late); }
+.ai-plan-list li.sev-warn { border-left-color: var(--band-w1); }
+.ai-plan-list .n { width: 20px; height: 20px; border-radius: 50%; background: var(--pei-amber); color: #2A1D06; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.ai-plan-list .cnt { background: rgba(255,255,255,0.16); border-radius: 20px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+.ai-plan-list .do { display: block; color: #CBD3E0; margin-top: 4px; line-height: 1.5; }
+
+.ai-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; align-items: start; }
+.ai-card { background: var(--pei-surface); border: 1px solid var(--pei-border); border-left: 4px solid var(--pei-border); border-radius: var(--pei-radius); padding: 16px 18px; }
+.ai-card.sev-critical { border-left-color: var(--band-late); }
+.ai-card.sev-warn { border-left-color: var(--band-w1); }
+.ai-card.sev-info { border-left-color: var(--band-ontime); }
+.ai-card-head { display: flex; align-items: baseline; gap: 9px; }
+.ai-icon { font-size: 15px; line-height: 1; }
+.ai-card-title { font-size: 13.5px; font-weight: 650; flex: 1; }
+.ai-count { background: #F1EEE8; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 700; color: var(--pei-ink-2); }
+.ai-card.sev-critical .ai-count { background: var(--pei-bad-bg); color: var(--pei-bad-fg); }
+.ai-action { font-size: 12.5px; color: var(--pei-ink-2); line-height: 1.55; margin: 10px 0 0; }
+.ai-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 11.5px; color: var(--pei-muted); }
+.ai-stats strong { font-size: 15px; color: var(--pei-ink); margin-right: 3px; }
+.ai-table-wrap { margin-top: 12px; overflow-x: auto; }
+.ai-table th, .ai-table td { padding: 7px 8px; font-size: 12px; }
+.ai-items { list-style: none; margin: 12px 0 0; padding: 0; }
+.ai-items li { padding: 8px 0; border-top: 1px solid var(--pei-border-soft); font-size: 12.5px; display: grid; grid-template-columns: auto auto 1fr; gap: 4px 9px; align-items: baseline; }
+.ai-po { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 700; color: var(--pei-navy); text-decoration: none; border-bottom: 1px solid var(--pei-amber); }
+.ai-po:hover { color: var(--pei-amber-dark); }
+.ai-style { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--pei-muted); }
+.ai-detail { grid-column: 1 / -1; color: var(--pei-ink-2); line-height: 1.5; }
+.ai-meta { grid-column: 1 / -1; font-size: 11px; color: var(--pei-faint); }
+.ai-more { color: var(--pei-faint); font-style: italic; }
+
+/* ==========================================================================
+   v83 — Workbench density restored.
+   The v80 design-system pass restyled `.data-table td` to 11px/14px padding.
+   The Workbench's own rule (4px/6px) has identical specificity and sits
+   EARLIER in this file, so the roomier report padding silently won on the
+   densest grid in the app: 28px of horizontal padding instead of 12px, which
+   is what was actually eating the ETD, Qty and FOB columns. Every width fix
+   before this one was treating the symptom. These rules are deliberately
+   placed last and scoped to .wb-table so the two systems stop fighting.
+   ========================================================================== */
+.wb-table th { padding: 6px 8px; font-size: 10.5px; }
+.wb-table td { padding: 4px 6px; font-size: 11.5px; box-sizing: border-box; }
+.wb-table th.wb-frozen, .wb-table td.wb-frozen { position: sticky; }
+.wb-table th.wb-frozen { background: #FAFBFC; }
+
+/* A native date input renders "mm/dd/yyyy" plus a calendar button; at the
+   78px shared with text inputs the year was being cut to "202". Measured in
+   a real browser: 118px shows the full value, and the 134px column carries
+   it with padding to spare. */
+.wb-table .wb-input[type="date"] { width: 118px; }
+
+/* A milestone reached from an alert marks itself, so the deep link lands the
+   user ON the field rather than merely on the right tab. */
+.tna-row-highlight td { background: var(--pei-amber-soft) !important; }
+/* One marker bar down the left of the row, not one per cell. */
+.tna-row-highlight td:first-child { box-shadow: inset 3px 0 0 var(--pei-amber); }
+
+/* The corporate header block that sits above an exported sheet — shown in
+   the preview exactly as it will be written into the file. */
+.pv-xls-header { background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: 10px 10px 0 0; border-bottom: none; padding: 14px 16px 12px; }
+.pv-xls-header .co { font-size: 12px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; }
+.pv-xls-header .sub { font-size: 11px; font-weight: 700; color: var(--pei-ink-2); letter-spacing: .5px; margin-top: 2px; }
+.pv-xls-header .meta { font-size: 11px; color: var(--pei-muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.pv-xls-header + .pv-sheet { border-radius: 0 0 10px 10px; }
+
+/* ==========================================================================
+   v84 — Operational Control Tower.
+   Three levels, deliberately distinct so the eye can tell them apart at a
+   glance: the health strip (what is the state of the world), the type cards
+   grouped by severity (what kind of problem, how many), and the detail table
+   (which POs exactly). Severity is carried by colour AND by the dot glyph in
+   the label, so the screen still reads correctly for a colour-blind user and
+   in a black-and-white print of the exported PDF.
+   ========================================================================== */
+
+/* --- Level 1: health strip ------------------------------------------------ */
+.ct-health { background: var(--pei-navy); color: #fff; border-radius: var(--pei-radius); padding: 18px 22px 20px; margin-bottom: 16px; }
+.ct-health-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.ct-health-head h3 { margin: 0; font-size: 17px; font-weight: 650; }
+.ct-health-time { margin-left: auto; font-size: 11px; color: #9FB0C8; font-variant-numeric: tabular-nums; }
+.ct-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+.ct-tile { background: rgba(255,255,255,0.07); border-radius: 10px; padding: 12px 14px; border-left: 3px solid #56698A; }
+.ct-tile .v { font-size: 26px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ct-tile .l { font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: #BFC9DA; font-weight: 700; margin-bottom: 6px; }
+.ct-tile .s { font-size: 11.5px; color: #9FB0C8; margin-top: 4px; line-height: 1.45; }
+.ct-tile.sev-critical { border-left-color: var(--band-late); }
+.ct-tile.sev-attention { border-left-color: #E08A3C; }
+.ct-tile.sev-warning  { border-left-color: var(--band-w1); }
+.ct-tile.sev-normal   { border-left-color: var(--band-ontime); }
+
+/* --- Start here ----------------------------------------------------------- */
+.ct-start { background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: var(--pei-radius); padding: 16px 20px 18px; margin-bottom: 18px; }
+.ct-start-head { display: flex; align-items: baseline; gap: 10px; }
+.ct-start-head h3, .ct-start-head h4 { margin: 0; font-size: 15px; font-weight: 650; }
+.ct-start-empty { margin: 10px 0 0; font-size: 13px; color: var(--pei-muted); }
+.ct-start-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.ct-start-list li { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 14px; cursor: pointer; align-items: center; background: var(--pei-surface-2); border-radius: 9px; padding: 11px 14px; border-left: 3px solid var(--pei-border); }
+.ct-start-list li.sev-critical  { border-left-color: var(--band-late); }
+.ct-start-list li.sev-attention { border-left-color: #E08A3C; }
+.ct-start-list li.sev-warning   { border-left-color: var(--band-w1); }
+.ct-start-list li.sev-normal    { border-left-color: var(--band-ontime); }
+.ct-start-list .n { width: 21px; height: 21px; border-radius: 50%; background: var(--pei-amber); color: #2A1D06; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.ct-start-list .t { font-size: 13px; font-weight: 600; }
+.ct-start-list .q { font-size: 11.5px; color: var(--pei-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ct-start-list li:hover { background: var(--pei-amber-soft); }
+.ct-start-list .go { white-space: nowrap; font-size: 11.5px; font-weight: 700; color: var(--pei-amber-dark); }
+
+/* --- Level 2: severity sections and type cards ---------------------------- */
+.ct-section { margin-bottom: 20px; }
+.ct-section-head h4 { margin: 0; font-size: 13px; font-weight: 650; }
+.ct-section-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.ct-sev-title { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.ct-sev-title.sev-critical  { color: var(--pei-bad-fg); }
+.ct-sev-title.sev-attention { color: #B4611B; }
+.ct-sev-title.sev-warning   { color: #8A6A16; }
+.ct-sev-title.sev-normal    { color: var(--pei-good-fg); }
+.ct-eyebrow { font-size: 11px; color: var(--pei-muted); }
+.ct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 13px; align-items: start; }
+.ct-card { background: var(--pei-surface); border: 1px solid var(--pei-border); border-left: 4px solid var(--pei-border); border-radius: var(--pei-radius); padding: 15px 17px 13px; }
+.ct-card.sev-critical  { border-left-color: var(--band-late); }
+.ct-card.sev-attention { border-left-color: #E08A3C; }
+.ct-card.sev-warning   { border-left-color: var(--band-w1); }
+.ct-card.sev-normal    { border-left-color: var(--band-ontime); }
+.ct-card-head { display: flex; align-items: baseline; gap: 9px; }
+.ct-card-title { font-size: 13.5px; font-weight: 650; flex: 1; }
+.ct-count { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.ct-blurb { font-size: 12.5px; color: var(--pei-ink-2); line-height: 1.55; margin: 9px 0 0; }
+.ct-mini { width: 100%; margin-top: 11px; border-collapse: collapse; table-layout: fixed; }
+.ct-mini th { padding: 4px 10px 4px 0; font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--pei-faint); text-align: left; font-weight: 700; }
+.ct-mini th:nth-child(4) { text-align: right; }
+.ct-mini th:last-child, .ct-mini td:last-child { padding-right: 0; }
+.ct-mini col.f { width: 34%; }
+.ct-mini td.f, .ct-mini th:nth-child(3) { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-mini td { padding: 4px 10px 4px 0; font-size: 11.5px; color: var(--pei-ink-2); border-top: 1px solid var(--pei-border-soft); }
+.ct-mini td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ct-card-foot { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--pei-border-soft); }
+
+/* --- Level 3: detail table and pager -------------------------------------- */
+/* .ct-detail sits ON the table (inside .rc-scroll), so the rules target the
+   table itself. Everything is nowrap: 22 business columns wrap into
+   three-line rows otherwise, and a wrapped row is far harder to scan than a
+   horizontal scroll — the same choice the Workbench grid makes. */
+table.ct-detail { white-space: nowrap; }
+table.ct-detail th { padding: 8px 10px; font-size: 10px; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+table.ct-detail td { padding: 6px 10px; font-size: 11.5px; white-space: nowrap; }
+table.ct-detail td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.ct-detail td.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; }
+.ct-pager { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 11px 4px 0; font-size: 12px; color: var(--pei-ink-2); }
+.ct-pager .spacer { flex: 1; }
+.ct-pager button { padding: 4px 10px; }
+
+/* Phase 6 — direction of travel. */
+.ct-delta { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ct-delta.up { color: var(--pei-bad-fg); }
+.ct-delta.down { color: var(--pei-good-fg); }
+.ct-delta.flat { color: var(--pei-muted); font-weight: 600; }
+.ct-movers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ct-movers li { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.ct-movers li .ct-delta { min-width: 46px; }
+
+/* The T&A grid's date inputs are the same control as the Workbench's, and were
+   clipping the year to "202" at the inherited width. Measured, not guessed:
+   118px is what a native mm/dd/yyyy plus its calendar button needs. */
+.tna-table .wb-input[type="date"] { width: 118px; }
+.tna-table td { vertical-align: middle; }
+
+/* ==========================================================================
+   v86 — the role-based Dashboard.
+   ==========================================================================
+   The first screen a person sees, so it is held to a stricter standard than
+   an internal report: readable in ten seconds, aligned on one grid, and
+   restrained with colour. Red, amber and green appear only where they carry
+   a severity the engine actually assigned — never as decoration.
+   ========================================================================== */
+
+.db-page { padding-bottom: 40px; }
+.db-eyebrow { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--pei-faint); font-weight: 700; }
+.db-headright { display: flex; gap: 8px; align-items: center; }
+.db-viewbar { display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap; }
+.db-hint { margin-left: auto; max-width: 420px; }
+.db-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--pei-ink-2); }
+.db-empty { font-size: 13px; color: var(--pei-muted); margin: 10px 0; }
+.db-foot-note { font-size: 11.5px; color: var(--pei-faint); line-height: 1.55; margin: 10px 18px 14px; }
+.db-warn-note { font-size: 12px; color: var(--pei-bad-fg); background: var(--pei-bad-bg); border-radius: 6px; padding: 9px 12px; margin: 12px 0 0; }
+.db-oversized { border-left: 4px solid var(--band-w1); }
+.db-oversized h3 { margin: 0 0 8px; font-size: 16px; }
+.db-oversized p { margin: 0; font-size: 13.5px; color: var(--pei-ink-2); line-height: 1.6; max-width: 74ch; }
+
+/* --- KPI strip ------------------------------------------------------------
+   A tile that cannot be clicked is a dead end. The ones that lead somewhere
+   say so on hover and carry a quiet arrow. */
+/* An explicit column count rather than auto-fit: twelve tiles on an auto
+   grid land 7 + 5 and the ragged second row reads as an accident. Six and
+   six is a deliberate block, and the breakpoints keep every row full. */
+.db-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
+@media (min-width: 700px)  { .db-kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1020px) { .db-kpis { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1340px) { .db-kpis { grid-template-columns: repeat(var(--db-cols, 6), 1fr); } }
+.db-kpi {
+  background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: var(--pei-radius);
+  padding: 14px 16px 13px; border-top: 3px solid var(--pei-border); text-decoration: none; color: inherit;
+  display: block; transition: border-color .12s ease, transform .12s ease;
+}
+.db-kpi .l { font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--pei-muted); font-weight: 700; }
+.db-kpi .v { font-size: 25px; font-weight: 700; line-height: 1.15; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.db-kpi .s { font-size: 11.5px; color: var(--pei-faint); margin-top: 4px; line-height: 1.45; }
+.db-kpi.clickable:hover { border-color: var(--pei-amber); transform: translateY(-1px); }
+.db-kpi.clickable:focus-visible { outline: 2px solid var(--pei-amber); outline-offset: 2px; }
+.db-kpi.clickable .l::after { content: " \2192"; color: var(--pei-amber-dark); opacity: 0; transition: opacity .12s ease; }
+.db-kpi.clickable:hover .l::after { opacity: 1; }
+.db-kpi.tone-critical { border-top-color: var(--band-late); }
+.db-kpi.tone-critical .v { color: var(--pei-bad-fg); }
+.db-kpi.tone-attention { border-top-color: #E08A3C; }
+.db-kpi.tone-good { border-top-color: var(--band-ontime); }
+
+/* --- Start here + today --------------------------------------------------- */
+.db-split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; margin-bottom: 18px; align-items: start; }
+@media (max-width: 1000px) { .db-split { grid-template-columns: 1fr; } }
+
+.db-actions { background: var(--pei-navy); color: #fff; border-radius: var(--pei-radius); padding: 18px 20px 20px; }
+.db-actions .db-eyebrow { color: #8FA0BC; }
+.db-actions-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.db-actions-head h3 { margin: 4px 0 0; font-size: 16px; font-weight: 650; flex: 1 1 auto; }
+.db-viewall { margin-left: auto; font-size: 12px; color: var(--pei-amber); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.db-viewall:hover { text-decoration: underline; }
+.db-actions .db-empty { color: #BFC9DA; }
+.db-action-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.db-action-list li {
+  display: grid; grid-template-columns: 21px 1fr auto auto; gap: 12px; align-items: center;
+  background: rgba(255,255,255,.06); border-radius: 9px; padding: 10px 13px; border-left: 3px solid #56698A;
+}
+.db-action-list li.sev-critical { border-left-color: var(--band-late); }
+.db-action-list li.sev-attention { border-left-color: #E08A3C; }
+.db-action-list li.sev-warning { border-left-color: var(--band-w1); }
+.db-action-list .n { width: 21px; height: 21px; border-radius: 50%; background: var(--pei-amber); color: #2A1D06; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.db-action-list .t { font-size: 13px; }
+.db-action-list .q { font-size: 11.5px; color: #9FB0C8; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-action-list .go { font-size: 11.5px; font-weight: 700; color: var(--pei-amber); text-decoration: none; white-space: nowrap; }
+.db-action-list .go:hover { text-decoration: underline; }
+
+.db-today { background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: var(--pei-radius); padding: 6px 18px 14px; }
+.db-today-sec { padding: 12px 0; border-bottom: 1px solid var(--pei-border-soft); }
+.db-today-sec:last-child { border-bottom: none; }
+.db-today-head { display: flex; align-items: baseline; gap: 10px; }
+.db-today-head .ttl { font-size: 12px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; }
+.db-today-head .sub { font-size: 11px; color: var(--pei-faint); margin-left: auto; }
+.db-today-sec.sev-critical .ttl { color: var(--pei-bad-fg); }
+.db-today-sec.sev-attention .ttl { color: #B4611B; }
+.db-today-sec.sev-warning .ttl { color: #8A6A16; }
+.db-today-sec.sev-normal .ttl { color: var(--pei-good-fg); }
+.db-today ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
+.db-today li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: baseline; font-size: 12.5px; }
+.db-today li .lbl { color: var(--pei-ink); text-decoration: none; border-bottom: 1px solid transparent; }
+.db-today li .lbl:hover { border-bottom-color: var(--pei-amber); }
+.db-today li .cnt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-today li .qty { font-size: 11.5px; color: var(--pei-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-more { display: inline-block; margin-top: 8px; font-size: 11.5px; color: var(--pei-muted); text-decoration: none; }
+.db-more:hover { color: var(--pei-amber-dark); }
+.db-ontrack { margin: 8px 0 0; font-size: 12.5px; color: var(--pei-ink-2); }
+.btn-link.xs { font-size: 11px; padding: 0; }
+
+/* --- section heads shared by the bodies ----------------------------------- */
+.db-sec-head { display: flex; align-items: flex-end; gap: 16px; padding: 16px 18px 0; flex-wrap: wrap; }
+.db-sec-head h3 { margin: 3px 0 0; font-size: 15.5px; font-weight: 650; }
+.db-sec-head > :last-child:not(:first-child) { margin-left: auto; }
+.db-sec-tools { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.db-sec-tools select { padding: 5px 8px; font-size: 12px; }
+.rc-card > .db-sec-head:first-child { padding: 0 0 8px; }
+
+/* --- chips ---------------------------------------------------------------- */
+.db-chips { display: flex; gap: 7px; flex-wrap: wrap; padding: 12px 18px 4px; }
+.db-chips.tight { padding: 8px 0 10px; }
+.db-chips button {
+  border: 1px solid var(--pei-border); background: var(--pei-surface); border-radius: 20px;
+  padding: 5px 12px; font-size: 11.5px; cursor: pointer; color: var(--pei-ink-2);
+}
+.db-chips button:hover { border-color: var(--pei-amber); }
+.db-chips button.active { background: var(--pei-navy); border-color: var(--pei-navy); color: #fff; }
+.db-chips button .c { font-weight: 700; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* --- actionable tables ---------------------------------------------------- */
+.db-actionable { margin-bottom: 18px; }
+table.db-action-table { white-space: nowrap; }
+table.db-action-table th { font-size: 10px; letter-spacing: .5px; text-transform: uppercase; padding: 8px 10px; }
+table.db-action-table td { font-size: 11.5px; padding: 6px 10px; white-space: nowrap; }
+table.db-action-table td.num, table.db-action-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; }
+.db-pager-wrap { padding: 4px 18px 12px; }
+.db-pagesize { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pei-muted); }
+.db-pagesize select { padding: 3px 6px; font-size: 12px; }
+
+/* --- performance strip ----------------------------------------------------- */
+.db-perf { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; margin-bottom: 18px; align-items: start; }
+.db-mini { width: 100%; margin-top: 10px; }
+.db-mini td { padding: 5px 0; font-size: 12px; border-top: 1px solid var(--pei-border-soft); }
+.db-mini th { padding: 5px 0; font-size: 10px; letter-spacing: .5px; text-transform: uppercase; color: var(--pei-muted); text-align: left; }
+.db-mini td.num, .db-mini th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.db-mini tr.db-total td { font-weight: 700; border-top: 2px solid var(--pei-border); }
+.db-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: baseline; }
+
+/* --- growth ---------------------------------------------------------------- */
+.db-growth { margin-bottom: 18px; }
+.db-growth-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0 16px; }
+.db-growth-card { background: var(--pei-surface-2); border-radius: 10px; padding: 13px 15px; }
+.db-growth-card .l { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--pei-muted); font-weight: 700; }
+.db-growth-card .v { font-size: 23px; font-weight: 700; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.db-growth-card .d { font-size: 11.5px; margin-top: 4px; font-weight: 600; }
+.db-growth-card .d.up { color: var(--pei-good-fg); }
+.db-growth-card .d.down { color: var(--pei-bad-fg); }
+.db-growth-card .d.flat { color: var(--pei-faint); font-weight: 500; }
+
+/* --- shipped quantity ------------------------------------------------------ */
+.db-shipqty { margin-bottom: 18px; }
+.db-qty-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-top: 12px; }
+.db-qty-row > div { border-left: 3px solid var(--pei-border); padding-left: 13px; }
+.db-qty-row .l { display: block; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--pei-muted); font-weight: 700; }
+.db-qty-row .v { display: block; font-size: 22px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.db-qty-row .s { display: block; font-size: 11px; color: var(--pei-faint); margin-top: 2px; }
+
+/* --- quick actions --------------------------------------------------------- */
+.db-quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 4px; }
+.db-quick-item {
+  background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: var(--pei-radius);
+  padding: 14px 16px; text-decoration: none; color: inherit; transition: border-color .12s ease;
+}
+.db-quick-item:hover { border-color: var(--pei-amber); }
+.db-quick-item .t { display: block; font-size: 13.5px; font-weight: 650; }
+.db-quick-item .s { display: block; font-size: 11.5px; color: var(--pei-faint); margin-top: 3px; }
+
+/* ==========================================================================
+   v87 — Workbench: one column per milestone, Plan over Actual over Status.
+   ==========================================================================
+   Three sub-columns per milestone put the plan and the actual date under
+   different headers with a status column between them, and nineteen of those
+   is ~6,950px of horizontal scroll. Stacking them makes the relationship
+   vertical and adjacent — which is how a merchandiser reads it — and fits six
+   or seven milestones on screen instead of two.
+
+   The reminder tint sits on the PLAN input only, and is computed from the
+   dates alone (see milestoneReminder.js). It is not the Status field and does
+   not mirror it: a milestone completed late shows no tint and still reads
+   "Delayed" in the dropdown, which is exactly the separation asked for.
+   ========================================================================== */
+
+.wb-table th.wb-ms-th { text-align: center; line-height: 1.25; }
+.wb-ms-th-sub { display: block; font-size: 8.5px; letter-spacing: .4px; font-weight: 500; color: var(--pei-faint); text-transform: none; margin-top: 1px; }
+
+.wb-table td.wb-ms { padding: 3px 5px; vertical-align: top; }
+.wb-ms-line { display: flex; align-items: center; gap: 4px; }
+.wb-ms-line + .wb-ms-line { margin-top: 2px; }
+.wb-ms-tag {
+  width: 11px; flex: 0 0 11px; text-align: center;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9px; font-weight: 700;
+  color: var(--pei-faint); line-height: 1;
+}
+.wb-table .wb-ms-date[type="date"] { width: 118px; flex: 0 0 118px; }
+.wb-ms-status-line { margin-top: 3px; padding-top: 3px; border-top: 1px dotted var(--pei-border); }
+.wb-table .wb-ms-status-line .wb-status { width: 100px; flex: 0 0 100px; font-size: 10.5px; padding: 1px 3px; }
+
+/* A colour cue for status that does not depend on reading the select: the
+   dot carries it at a glance, and the select carries the word. Deliberately
+   a different visual language from the plan-date tint, so nobody reads a
+   status colour as a reminder or the reverse. */
+.wb-ms-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; background: var(--pei-border); }
+.wb-ms-dot.st-done { background: var(--band-ontime); }
+.wb-ms-dot.st-onTrack { background: #6E9BD1; }
+.wb-ms-dot.st-atRisk { background: var(--band-w1); }
+.wb-ms-dot.st-critical { background: var(--band-late); }
+.wb-ms-dot.st-pending { background: #C9CFD8; }
+
+/* The two reminder states. Both keep the date itself in near-black — the
+   cue is the field, not the digits, so the date stays as readable as any
+   other. A left bar carries the same information as the fill, so the two
+   states are still distinguishable in a greyscale print and to a viewer who
+   cannot separate yellow from orange. */
+.wb-table .wb-input.wb-rem-soon {
+  background: #FDF6DC; border-color: #E3C766; box-shadow: inset 2px 0 0 #D9AE2E;
+}
+.wb-table .wb-input.wb-rem-due {
+  background: #FBE7E1; border-color: #D9997F; box-shadow: inset 2px 0 0 #C0512C;
+  font-weight: 600;
+}
+.wb-table .wb-input.wb-rem-soon:focus, .wb-table .wb-input.wb-rem-due:focus { box-shadow: none; }
+
+/* The legend, so the two colours are explained on the screen that uses them
+   rather than in a training session. */
+.wb-legend { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--pei-muted); padding: 8px 2px 0; }
+.wb-legend .k { display: inline-flex; align-items: center; gap: 6px; }
+.wb-legend .sw { width: 22px; height: 14px; border-radius: 3px; border: 1px solid var(--pei-border); }
+.wb-legend .sw.soon { background: #FDF6DC; border-color: #E3C766; box-shadow: inset 2px 0 0 #D9AE2E; }
+.wb-legend .sw.due { background: #FBE7E1; border-color: #D9997F; box-shadow: inset 2px 0 0 #C0512C; }
+.wb-legend .sep { color: var(--pei-border); }
+
+/* ==========================================================================
+   v87 — Follow-up Report: the compact historical cell.
+   ==========================================================================
+   Deliberately the OPPOSITE reading from the Workbench. There, colour means
+   "chase this" and disappears the moment an actual date exists. Here, a
+   milestone completed after its plan date stays marked, because the sheet is
+   a performance record and that is the fact a manager is looking for.
+   ========================================================================== */
+
+.fu-table { width: 100%; }
+.fu-table th, .fu-table td { padding: 4px 7px; font-size: 11px; white-space: nowrap; }
+.fu-table th { font-size: 9.5px; letter-spacing: .4px; text-transform: uppercase; }
+.fu-table td.fu-ms { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+.fu-cell { display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 3px; border-radius: 3px; }
+.fu-date { font-variant-numeric: tabular-nums; }
+.fu-ap { font-size: 8.5px; font-weight: 800; line-height: 1; padding: 1px 2px; border-radius: 2px; }
+.fu-ap.a { color: #14543F; background: #DCF0E6; }
+.fu-ap.p { color: #5A6472; background: #ECEFF3; }
+.fu-st { font-size: 8.5px; font-weight: 700; color: var(--pei-muted); letter-spacing: .3px; }
+.fu-empty { color: var(--pei-faint); }
+
+/* Late completion: a tint AND an underline, so the mark survives a
+   black-and-white print of the sheet, which is how most of these are read. */
+.fu-cell.fu-late { background: #FBE7E1; text-decoration: underline; text-decoration-color: #C0512C; text-underline-offset: 2px; }
+.fu-cell.fu-late .fu-date { color: #8E2E1E; font-weight: 700; }
+
+.fu-legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--pei-muted); margin: 6px 0 10px; }
+.fu-legend .k { display: inline-flex; align-items: center; gap: 5px; }
+.fu-legend-st b { color: var(--pei-ink-2); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; }
+.fu-legend.printed { border-top: 1px solid var(--pei-border); padding-top: 8px; margin-top: 10px; }
+.fu-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pei-ink-2); }
+
+/* A4 landscape is the target: 297mm wide, and the sheet has to carry eight
+   identity columns plus the milestones. Everything is set tight, the page
+   margin is declared rather than left to the browser, and a Label group is
+   kept off a page break where it can be. */
+@page { size: A4 landscape; margin: 9mm; }
+@media print {
+  /* Measured against the real page box rather than guessed: A4 landscape at
+     96dpi is 1123px, less the 9mm margins declared above, leaves 1054px. The
+     sheet has to carry eight identity columns plus the milestones, so the
+     identity columns are capped and truncated and the milestone cells are set
+     as tight as they can be while a date stays legible. */
+  .fu-table { table-layout: fixed; width: 100%; }
+  .fu-table th, .fu-table td { padding: 1px 3px; font-size: 7.5px; overflow: hidden; text-overflow: ellipsis; }
+  .fu-table th { font-size: 6.5px; letter-spacing: 0; }
+  .fu-table th:nth-child(1), .fu-table td:nth-child(1) { width: 26px; }    /* BU */
+  .fu-table th:nth-child(2), .fu-table td:nth-child(2) { width: 54px; }    /* PO */
+  .fu-table th:nth-child(3), .fu-table td:nth-child(3) { width: 52px; }    /* Style */
+  .fu-table th:nth-child(4), .fu-table td:nth-child(4) { width: 84px; }    /* Color */
+  .fu-table th:nth-child(5), .fu-table td:nth-child(5) { width: 40px; }    /* Qty */
+  .fu-table th:nth-child(6), .fu-table td:nth-child(6) { width: 38px; }    /* FOB */
+  .fu-table th:nth-child(7), .fu-table td:nth-child(7) { width: 44px; }    /* ETD */
+  .fu-table th:nth-child(8), .fu-table td:nth-child(8) { width: 44px; }    /* Rev ETD */
+  .fu-cell { gap: 1px; padding: 0 1px; }
+  .fu-ap { font-size: 6px; padding: 0 1px; }
+  .fu-st { font-size: 6px; }
+  .fu-legend { font-size: 7px; gap: 10px; }
+  .fu-cell.fu-late { background: #F6DED6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .fu-ap.a, .fu-ap.p { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tna-scroll { overflow: visible !important; }
+  .filter-row, .btn-primary, .btn-ghost-sm, .fu-toggle { display: none !important; }
+}
+
+.wb-pager { padding: 10px 2px 0; }
+.fu-legend-note { color: var(--pei-faint); font-style: italic; }

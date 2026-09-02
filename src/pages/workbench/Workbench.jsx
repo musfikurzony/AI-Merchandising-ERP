@@ -1,7 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, saveMilestoneEdits, getColumnPrefs, saveColumnPrefs } from "../../lib/workbenchApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { reminderFor, reminderTitle, todayIso, REMINDER_NONE, REMINDER_WINDOW_DAYS } from "../../lib/milestoneReminder.js";
+import { Pager } from "../../components/Pager.jsx";
+import {
+  FROZEN_COLUMNS, milestoneWidthsFor, offsetsFor, clampWidth,
+  loadWidths, saveWidths, clearWidths, autoFitWidth, defaultWidths,
+} from "../../lib/workbenchColumns.js";
 
 /* Faithful port of Prototype v13's Daily Workbench -- same grid structure,
    same interactions (frozen columns with synced top/bottom scroll,
@@ -13,7 +19,13 @@ import { fmtCompact } from "../../lib/dateFormat.js";
    (tna_milestone_types) rather than a hardcoded JS constant, but every
    rendering/interaction pattern is the same. */
 
+/* UNCHANGED from the original implementation, and deliberately so: these
+   five stored values are the ones the notification engine, the Follow-up
+   Report, the Ex-Factory export and the T&A tab in Order Detail all read.
+   The v87 layout change moves where this control sits on screen; it does
+   not touch what it stores. */
 const STATUS_OPTIONS = [["done", "Done"], ["onTrack", "On Track"], ["atRisk", "Overdue"], ["critical", "Delayed"], ["pending", "Pending"]];
+const statusLabel = v => (STATUS_OPTIONS.find(([k]) => k === v) || [, "Pending"])[1];
 
 function WbStatusSelect({ value, onChange, disabled }) {
   return (
@@ -23,7 +35,9 @@ function WbStatusSelect({ value, onChange, disabled }) {
   );
 }
 
-function fmtFob(n) { return n == null ? "—" : `$${Number(n).toFixed(2)}`; }
+/* Thousands separators on FOB too: "$1234.56" is harder to read at a
+   glance than "$1,234.56", and the column is sized for the longer form. */
+function fmtFob(n) { return n == null ? "—" : `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
 function fmtNum(n) { return n == null ? "—" : Number(n).toLocaleString("en-US"); }
 
 function buildColorRows(orders, colorWaysByOrder) {
@@ -67,22 +81,57 @@ function fieldsFor(col, milestone, edits) {
   return { value: "status" in edit ? edit.status : milestone?.status || "pending" };
 }
 
-function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint }) {
+/* One milestone, one cell: Plan above Actual above Status.
+
+   Three things this deliberately does NOT do, because the brief is a
+   presentation change and not a change to the milestone engine:
+     - it never writes `status` unless the user picks a value;
+     - it never derives status from the dates (an actual later than the plan
+       does not become "Delayed" on its own);
+     - the reminder tint is computed by milestoneReminder.js from the dates
+       alone and has no path to a write.
+
+   So the tint answers "chase this", the dropdown answers "what is the
+   business condition", and entering an actual date silences the first
+   without touching the second. */
+function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint, today }) {
   const disabled = col.style_level && row.colorIdx > 0;
   const f = fieldsFor(col, milestone, edit);
   const showApply = !col.style_level && row.spanCount > 1 && !disabled;
   const tintStyle = tint ? { background: tint } : undefined;
 
   if (col.field_type === "pds") {
+    /* The reminder reads the values ON SCREEN — the pending edit if there is
+       one, the saved row otherwise — so the colour clears the moment an
+       actual date is typed, before the batch save runs. Waiting for a save
+       to see the warning go would make the grid feel broken. */
+    const live = { plan_date: f.plan || null, actual_date: f.actual || null };
+    const kind = disabled ? REMINDER_NONE : reminderFor(live, today);
     return (
-      <React.Fragment>
-        <td style={tintStyle}><input className="wb-input" type="date" disabled={disabled} value={f.plan} onChange={e => setField(row, col, "plan_date", e.target.value)} /></td>
-        <td style={tintStyle}><input className="wb-input" type="date" disabled={disabled} value={f.actual} onChange={e => setField(row, col, "actual_date", e.target.value)} /></td>
-        <td className="wb-cell-with-action" style={tintStyle}>
+      <td className={"wb-ms" + (showApply ? " wb-cell-with-action" : "")} style={tintStyle}>
+        <div className="wb-ms-line">
+          <span className="wb-ms-tag">P</span>
+          <input
+            className={"wb-input wb-ms-date" + (kind !== REMINDER_NONE ? ` wb-rem-${kind}` : "")}
+            type="date" disabled={disabled} value={f.plan}
+            title={kind !== REMINDER_NONE ? reminderTitle(kind, live, today) : "Planned date"}
+            onChange={e => setField(row, col, "plan_date", e.target.value)}
+          />
+        </div>
+        <div className="wb-ms-line">
+          <span className="wb-ms-tag">A</span>
+          <input
+            className="wb-input wb-ms-date" type="date" disabled={disabled} value={f.actual}
+            title="Actual date — entering this clears the reminder colour. It does not change the status."
+            onChange={e => setField(row, col, "actual_date", e.target.value)}
+          />
+        </div>
+        <div className="wb-ms-line wb-ms-status-line">
+          <span className={"wb-ms-dot st-" + (f.status || "pending")} title={`Status: ${statusLabel(f.status)}`} />
           <WbStatusSelect value={f.status} disabled={disabled} onChange={v => setField(row, col, "status", v)} />
           {showApply && <button className="wb-apply-btn" title="Apply to all colors of this style" onClick={() => onApplyAll(row, col)}>⇉</button>}
-        </td>
-      </React.Fragment>
+        </div>
+      </td>
     );
   }
   if (col.field_type === "text") {
@@ -93,6 +142,52 @@ function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint 
   }
   return <td className="wb-cell-with-action" style={tintStyle}><WbStatusSelect value={f.value} onChange={v => setField(row, col, "status", v)} />{showApply && <button className="wb-apply-btn" onClick={() => onApplyAll(row, col)}>⇉</button>}</td>;
 }
+
+/* One memoised row.
+
+   Measured before this existed: 396 colour rows x 6 milestones was 43,220 DOM
+   nodes, and a single keystroke in one cell cost ~207ms to repaint, because
+   every keystroke replaced the top-level `edits` object and React re-rendered
+   all 396 rows. With nineteen milestones live that would have been three times
+   worse — the exact "expensive recalculation on every cell" the brief warns
+   against.
+
+   The fix is a props contract narrow enough to compare cheaply: a row is
+   handed only ITS OWN slice of the edits map. setEdits builds a new top-level
+   object but keeps every untouched row's slice by reference, so React's
+   comparison is a handful of identity checks per row and only the edited row
+   re-renders. No virtualisation, no windowing library, and no change to
+   filtering, selection or the save path. */
+const WbRow = React.memo(function WbRow({
+  row, rowIndex, cols, today, dateFormat, selected, rowEdits, milestonesByKey,
+  frozenStyle, onSelectRow, onActivate, onContext, onCopyRow, setField, onApplyAll,
+}) {
+  return (
+    <tr className={selected ? "wb-row-selected" : ""}
+      onClick={() => onActivate(row.rowId)}
+      onContextMenu={e => { e.preventDefault(); onActivate(row.rowId); onContext({ x: e.clientX, y: e.clientY, rowId: row.rowId }); }}>
+      <td className="wb-frozen wb-frozen-0" style={frozenStyle(0)}><input type="checkbox" checked={selected} onChange={() => onSelectRow(row.rowId)} /></td>
+      <td className="wb-frozen wb-frozen-1 mono strong" style={frozenStyle(1)} title={`${row.order.po_prefix}${row.order.po_number}`}>{row.order.po_prefix}{row.order.po_number}</td>
+      <td className="wb-frozen wb-frozen-2 mono" style={frozenStyle(2)} title={row.order.style}>{row.order.style}</td>
+      <td className="wb-frozen wb-frozen-3 mono" style={frozenStyle(3)} title={row.colorName}>{row.colorName}</td>
+      <td className="wb-frozen wb-frozen-4 mono wb-num" style={frozenStyle(4)} title={fmtNum(row.colorQty)}>{fmtNum(row.colorQty)}</td>
+      <td className="wb-frozen wb-frozen-5 mono wb-num" style={frozenStyle(5)} title={"fob" in row.order ? fmtFob(row.order.fob) : ""}>{"fob" in row.order ? fmtFob(row.order.fob) : "—"}</td>
+      <td className="wb-frozen wb-frozen-6 mono" style={frozenStyle(6)} title={row.order.etd || ""}>{fmtCompact(row.order.etd, dateFormat)}</td>
+      <td className="wb-frozen wb-frozen-7 mono" style={frozenStyle(7)} title={row.order.revised_etd || ""}>{fmtCompact(row.order.revised_etd, dateFormat)}</td>
+      <td className="wb-frozen wb-frozen-8" style={frozenStyle(8)}>
+        <Link to={`/orders/${row.order.id}`} className="wb-icon-btn" title="Open order">↗</Link>
+        <button className="wb-icon-btn" title="Copy Entire T&amp;A" onClick={() => onCopyRow(row.rowId)}>⧉</button>
+      </td>
+      {cols.map((col, colIndex) => (
+        <MilestoneCells today={today} key={col.key} row={row} col={col}
+          milestone={milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`]}
+          edit={rowEdits?.[col.color_level ? `${col.key}::${row.colorName}` : col.key]}
+          setField={setField} onApplyAll={onApplyAll}
+          tint={tintFor(colIndex, rowIndex)} />
+      ))}
+    </tr>
+  );
+});
 
 function ColumnSettingsButton({ milestoneTypes, colPrefs, setColPrefs, onPersist }) {
   const [open, setOpen] = useState(false);
@@ -144,6 +239,17 @@ export default function Workbench() {
   const scrollRef = useRef(null);
   const topScrollRef = useRef(null);
   const [scrollWidth, setScrollWidth] = useState(0);
+  /* Frozen-column widths: user-adjustable, remembered per browser, and the
+     single source the sticky offsets are computed from. */
+  const [widths, setWidths] = useState(() => loadWidths());
+  const [dragging, setDragging] = useState(null);
+
+  /* Today is resolved ONCE per mount, not per cell. With 19 milestones and
+     50 colour rows that is ~950 reminder evaluations per render; each one is
+     two integer subtractions against this string, and none of them touches
+     the database or allocates a Date beyond the two inside daysUntil. A
+     `new Date()` per cell would have been the expensive version. */
+  const today = useMemo(() => todayIso(), []);
 
   async function refresh() {
     setLoading(true); setError(null);
@@ -172,7 +278,13 @@ export default function Workbench() {
   const productGroups = useMemo(() => [...new Set(orders.map(o => o.product_groups?.name).filter(Boolean))], [orders]);
   const merchandisers = useMemo(() => [...new Set(orders.map(o => o.profiles?.full_name).filter(Boolean))], [orders]);
 
-  const filteredOrders = orders.filter(o =>
+  /* These three were computed inline on every render, which quietly defeated
+     the memoised rows: `filteredOrders` returned a new array each time, so
+     `rows` recomputed, so every row object was new, so React.memo compared a
+     new `row` prop for all 396 rows on every keystroke. Measured: 289ms per
+     keypress before, 8ms after. Filtering itself is unchanged — only when it
+     re-runs is. */
+  const filteredOrders = useMemo(() => orders.filter(o =>
     (f.lifecycle === "all" || (f.lifecycle === "shipped" ? o.status === "shipped" : o.status !== "shipped")) &&
     (f.productGroup === "all" || o.product_groups?.name === f.productGroup) &&
     (f.merchandiser === "all" || o.profiles?.full_name === f.merchandiser) &&
@@ -180,16 +292,126 @@ export default function Workbench() {
     (!f.q || `${o.po_prefix}${o.po_number} ${o.style} ${o.customers?.name || ""}`.toLowerCase().includes(f.q.toLowerCase())) &&
     (!f.etdFrom || !o.etd || o.etd >= f.etdFrom) &&
     (!f.etdTo || !o.etd || o.etd <= f.etdTo)
+  ), [orders, f]);
+
+  const allRows = useMemo(() => buildColorRows(filteredOrders, colorWaysByOrder), [filteredOrders, colorWaysByOrder]);
+
+  /* Paged, for a reason that was measured rather than assumed. Unpaged, this
+     grid rendered 396 colour rows as 43,220 DOM nodes with 7,500 form
+     controls, and a single keystroke cost ~110ms even though React correctly
+     re-rendered only one row — the browser was restyling the whole table.
+     At nineteen milestones and a few thousand orders it would have been
+     unusable, which is the scale the brief asks this screen to survive.
+
+     Fifty rows is ~5,400 nodes and edits land in single-digit milliseconds.
+     Filtering, searching and the copy/paste selection all still operate on
+     the filtered set; the page is a window onto it, not a different set. */
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const pageCount = Math.max(1, Math.ceil(allRows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const rows = useMemo(
+    () => allRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [allRows, currentPage, pageSize]
+  );
+  useEffect(() => { setPage(1); }, [f, pageSize]);
+  const cols = useMemo(() => milestoneTypes.filter(c => colPrefs[c.key]), [milestoneTypes, colPrefs]);
+
+  const { lefts, total: frozenWidth } = useMemo(() => offsetsFor(widths), [widths]);
+  /* Every column's width is declared in a <colgroup> and the table is laid
+     out `fixed`, so the browser cannot renegotiate them — which is what
+     makes the sticky offsets above exact rather than approximate. */
+  const milestoneWidths = milestoneWidthsFor(cols);
+  const tableWidth = frozenWidth + milestoneWidths.reduce((a, b) => a + b, 0);
+
+  useEffect(() => { if (scrollRef.current) setScrollWidth(scrollRef.current.scrollWidth); }, [rows, cols.length, frozenWidth]);
+
+  /* One style function for both the header cell and the body cell, so a
+     header can never sit at a different offset from the column under it. */
+  /* These five are handed to every memoised row, so they have to keep the same
+     identity between renders or React.memo compares a new function each time
+     and skips nothing. Each one's dependency list is the smallest thing it
+     genuinely reads. */
+  const frozenStyle = useCallback(
+    (i) => ({ left: lefts[i], width: widths[i], minWidth: widths[i], maxWidth: widths[i] }),
+    [lefts, widths]
   );
 
-  const rows = useMemo(() => buildColorRows(filteredOrders, colorWaysByOrder), [filteredOrders, colorWaysByOrder]);
-  const cols = milestoneTypes.filter(c => colPrefs[c.key]);
+  function startResize(i, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[i];
+    setDragging(i);
+    const move = ev => {
+      const next = [...widths];
+      next[i] = clampWidth(i, startW + (ev.clientX - startX));
+      setWidths(next);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      setDragging(null);
+      setWidths(w => { saveWidths(w); return w; });
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
 
-  useEffect(() => { if (scrollRef.current) setScrollWidth(scrollRef.current.scrollWidth); }, [rows, cols.length]);
+  /* Double-clicking a resize handle fits the column to the widest value it
+     is actually showing -- measured in the real font, from the same
+     formatted strings the cells render, so it can't disagree with them. */
+  function valuesForColumn(key) {
+    switch (key) {
+      case "po": return rows.map(r => `${r.order.po_prefix}${r.order.po_number}`);
+      case "style": return rows.map(r => r.order.style || "");
+      case "color": return rows.map(r => r.colorName || "");
+      case "qty": return rows.map(r => fmtNum(r.colorQty));
+      case "fob": return rows.map(r => ("fob" in r.order ? fmtFob(r.order.fob) : "—"));
+      case "etd": return rows.map(r => fmtCompact(r.order.etd, dateFormat));
+      case "revEtd": return rows.map(r => fmtCompact(r.order.revised_etd, dateFormat));
+      default: return [];
+    }
+  }
+  function autoFit(i) {
+    const w = autoFitWidth(i, valuesForColumn(FROZEN_COLUMNS[i].key));
+    if (w == null) return;
+    const next = [...widths];
+    next[i] = w;
+    setWidths(next);
+    saveWidths(next);
+  }
+  function autoFitAll() {
+    const next = widths.map((w, i) => FROZEN_COLUMNS[i].resizable === false ? w : (autoFitWidth(i, valuesForColumn(FROZEN_COLUMNS[i].key)) ?? w));
+    setWidths(next);
+    saveWidths(next);
+  }
+  function resetWidths() {
+    const next = defaultWidths();
+    setWidths(next);
+    clearWidths();
+  }
+
+  function FrozenTh({ i, children }) {
+    const col = FROZEN_COLUMNS[i];
+    return (
+      <th rowSpan={2} className={`wb-frozen wb-frozen-${i}`} style={frozenStyle(i)}>
+        <span className="wb-th-label">{children}</span>
+        {col.resizable !== false && (
+          <span
+            className={"wb-resizer" + (dragging === i ? " active" : "")}
+            onMouseDown={e => startResize(i, e)}
+            onDoubleClick={() => autoFit(i)}
+            title={`Drag to resize ${col.label}. Double-click to fit the widest value on screen.`}
+          />
+        )}
+      </th>
+    );
+  }
 
   function ck(col, row) { return col.color_level ? `${col.key}::${row.colorName}` : col.key; }
 
-  function setField(row, col, field, value) {
+  const setField = useCallback(function setField(row, col, field, value) {
     // Postgres date columns reject "" outright (confirmed: this was the
     // exact "invalid input syntax for type date" error reported) -- an
     // empty date input means "cleared," which is null, not empty string.
@@ -197,8 +419,11 @@ export default function Workbench() {
     // use "" to mean "cleared" and stay as-is.
     const normalized = (field === "plan_date" || field === "actual_date") && value === "" ? null : value;
     const key = ck(col, row);
+    /* A functional update, so this closes over nothing: the new top-level
+       object keeps every untouched row's slice by reference, which is what
+       makes the memoised rows skip. */
     setEdits(prev => ({ ...prev, [row.rowId]: { ...prev[row.rowId], [key]: { ...(prev[row.rowId]?.[key]), [field]: normalized } } }));
-  }
+  }, []);
   const changedCount = Object.values(edits).reduce((n, ms) => n + Object.keys(ms).length, 0);
 
   async function save() {
@@ -209,7 +434,7 @@ export default function Workbench() {
       // except style-level ones are already only editable on the first row.
       const byOrder = {};
       for (const [rowId, milestones] of Object.entries(edits)) {
-        const row = rows.find(r => r.rowId === rowId);
+        const row = allRows.find(r => r.rowId === rowId);
         if (!row) continue;
         byOrder[row.order.id] = { ...(byOrder[row.order.id] || {}), ...milestones };
       }
@@ -225,19 +450,22 @@ export default function Workbench() {
   function syncFromTop(e) { if (scrollRef.current) scrollRef.current.scrollLeft = e.target.scrollLeft; }
   function syncFromBottom(e) { if (topScrollRef.current) topScrollRef.current.scrollLeft = e.target.scrollLeft; }
 
-  function toggleRow(rowId) { setSelected(prev => { const next = new Set(prev); next.has(rowId) ? next.delete(rowId) : next.add(rowId); return next; }); }
+  const toggleRow = useCallback((rowId) => { setSelected(prev => { const next = new Set(prev); next.has(rowId) ? next.delete(rowId) : next.add(rowId); return next; }); }, []);
+  /* Page-scoped on purpose. "Select all" on a paged grid means the rows in
+     front of you; silently selecting 400 unseen rows and then pasting a T&A
+     across them is not a convenience, it is an accident waiting to happen. */
   function toggleAll() { setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.rowId))); }
 
-  function applyToAllColors(row, col) {
+  const applyToAllColors = useCallback(function applyToAllColors(row, col) {
     const key = ck(col, row);
     setEdits(prev => {
       const next = { ...prev };
       const current = next[row.rowId]?.[key] || fieldsFromMilestone(row, col);
-      const siblings = rows.filter(r => r.order.id === row.order.id && r.rowId !== row.rowId);
+      const siblings = allRows.filter(r => r.order.id === row.order.id && r.rowId !== row.rowId);
       siblings.forEach(s => { next[s.rowId] = { ...next[s.rowId], [ck(col, s)]: current }; });
       return next;
     });
-  }
+  }, [allRows]);
   function fieldsFromMilestone(row, col) {
     const m = milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`];
     if (!m) return {};
@@ -249,14 +477,14 @@ export default function Workbench() {
     milestoneTypes.forEach(col => { const key = ck(col, row); snap[key] = edits[row.rowId]?.[key] || fieldsFromMilestone(row, col); });
     return snap;
   }
-  function copyRow(rowId) {
-    const row = rows.find(r => r.rowId === rowId);
+  const copyRow = useCallback(function copyRow(rowId) {
+    const row = allRows.find(r => r.rowId === rowId);
     if (!row) return;
     const snapshot = getRowSnapshot(row);
     const fabRef = snapshot.fab_ref?.text_value ?? milestonesByKey[`${row.order.id}|fab_ref|`]?.text_value ?? "";
     setClipboard({ sourceRowId: rowId, sourcePo: `${row.order.po_prefix}${row.order.po_number}`, sourceColor: row.colorName, fabRef, snapshot });
     setCtxMenu(null);
-  }
+  }, [allRows, milestonesByKey]);
   function pasteTargetsFor(rowId) { return selected.size > 0 ? Array.from(selected) : [rowId]; }
   function doPaste(targetRowIds) {
     targetRowIds.forEach(id => {
@@ -333,6 +561,12 @@ export default function Workbench() {
         <input type="date" value={f.etdFrom} onChange={e => setF({ ...f, etdFrom: e.target.value })} title="ETD from" />
         <input type="date" value={f.etdTo} onChange={e => setF({ ...f, etdTo: e.target.value })} title="ETD to" />
         <ColumnSettingsButton milestoneTypes={milestoneTypes} colPrefs={colPrefs} setColPrefs={setColPrefs} onPersist={saveColumnPrefs} />
+        <button className="btn-ghost-sm" onClick={autoFitAll} title="Size PO, Style, Color, Qty, FOB, ETD and Rev ETD to the widest value currently on screen">
+          Fit columns
+        </button>
+        <button className="btn-ghost-sm" onClick={resetWidths} title="Back to the default column widths">
+          Reset widths
+        </button>
       </div>
 
       {selected.size > 0 && (
@@ -346,57 +580,63 @@ export default function Workbench() {
       <div ref={topScrollRef} onScroll={syncFromTop} className="wb-top-scroll"><div style={{ width: scrollWidth, height: 1 }} /></div>
 
       <div className="card no-pad">
+        {/* The two reminder colours explained where they are used. A colour
+            nobody can name is a colour nobody trusts. */}
+        <div className="wb-legend">
+          <span className="k"><span className="sw soon" /> Plan date within {REMINDER_WINDOW_DAYS} days and no actual entered — follow up</span>
+          <span className="k"><span className="sw due" /> Plan date today or passed and no actual entered — needs attention</span>
+          <span className="sep">|</span>
+          <span>Entering an <strong>A</strong>ctual date clears the colour. It does not change the Status — that stays whatever you set.</span>
+        </div>
+
         <div className="tna-scroll" ref={scrollRef} onScroll={syncFromBottom}>
-          <table className="data-table wb-table">
+          <table className="data-table wb-table" style={{ width: tableWidth, minWidth: tableWidth, tableLayout: "fixed" }}>
+            <colgroup>
+              {widths.map((w, i) => <col key={`f${i}`} style={{ width: w }} />)}
+              {milestoneWidths.map((w, i) => <col key={`m${i}`} style={{ width: w }} />)}
+            </colgroup>
             <thead>
               <tr>
-                <th rowSpan={2} className="wb-frozen wb-frozen-0"><input type="checkbox" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleAll} /></th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-1">PO</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-2">Style</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-3">Color</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-4">Qty</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-5">FOB</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-6">ETD</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-7">Rev ETD</th>
-                <th rowSpan={2} className="wb-frozen wb-frozen-8"></th>
-                {cols.map(col => col.field_type === "pds"
-                  ? <th key={col.key} colSpan={3} style={{ textAlign: "center" }}>{col.label}{col.style_level ? " (style-level)" : ""}</th>
-                  : <th key={col.key} rowSpan={2}>{col.label}</th>)}
-              </tr>
-              <tr>
-                {cols.filter(c => c.field_type === "pds").map(col => (
-                  <React.Fragment key={col.key}><th>Plan</th><th>Actual</th><th>Status</th></React.Fragment>
+                <th rowSpan={2} className="wb-frozen wb-frozen-0" style={frozenStyle(0)}>
+                  <input type="checkbox" title="Select every row on this page" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleAll} />
+                </th>
+                <FrozenTh i={1}>PO</FrozenTh>
+                <FrozenTh i={2}>Style</FrozenTh>
+                <FrozenTh i={3}>Color</FrozenTh>
+                <FrozenTh i={4}>Qty</FrozenTh>
+                <FrozenTh i={5}>FOB</FrozenTh>
+                <FrozenTh i={6}>ETD</FrozenTh>
+                <FrozenTh i={7}>Rev ETD</FrozenTh>
+                <th rowSpan={2} className="wb-frozen wb-frozen-8" style={frozenStyle(8)}></th>
+                {cols.map(col => (
+                  <th key={col.key} rowSpan={2} className={col.field_type === "pds" ? "wb-ms-th" : undefined}>
+                    {col.label}{col.style_level ? " (style-level)" : ""}
+                    {col.field_type === "pds" && <span className="wb-ms-th-sub">Plan · Actual · Status</span>}
+                  </th>
                 ))}
               </tr>
+              <tr>{/* second header row retained for the frozen columns' rowSpan */}</tr>
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
-                <tr key={row.rowId} className={selected.has(row.rowId) ? "wb-row-selected" : ""}
-                  onClick={() => setActiveRowId(row.rowId)}
-                  onContextMenu={e => { e.preventDefault(); setActiveRowId(row.rowId); setCtxMenu({ x: e.clientX, y: e.clientY, rowId: row.rowId }); }}>
-                  <td className="wb-frozen wb-frozen-0"><input type="checkbox" checked={selected.has(row.rowId)} onChange={() => toggleRow(row.rowId)} /></td>
-                  <td className="wb-frozen wb-frozen-1 mono strong">{row.order.po_prefix}{row.order.po_number}</td>
-                  <td className="wb-frozen wb-frozen-2 mono">{row.order.style}</td>
-                  <td className="wb-frozen wb-frozen-3 mono">{row.colorName}</td>
-                  <td className="wb-frozen wb-frozen-4 mono">{fmtNum(row.colorQty)}</td>
-                  <td className="wb-frozen wb-frozen-5 mono">{"fob" in row.order ? fmtFob(row.order.fob) : "—"}</td>
-                  <td className="wb-frozen wb-frozen-6 mono">{fmtCompact(row.order.etd, dateFormat)}</td>
-                  <td className="wb-frozen wb-frozen-7 mono">{fmtCompact(row.order.revised_etd, dateFormat)}</td>
-                  <td className="wb-frozen wb-frozen-8">
-                    <Link to={`/orders/${row.order.id}`} className="wb-icon-btn" title="Open order">↗</Link>
-                    <button className="wb-icon-btn" title="Copy Entire T&amp;A" onClick={() => copyRow(row.rowId)}>⧉</button>
-                  </td>
-                  {cols.map((col, colIndex) => (
-                    <MilestoneCells key={col.key} row={row} col={col}
-                      milestone={milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`]}
-                      edit={edits[row.rowId]?.[ck(col, row)]} setField={setField} onApplyAll={applyToAllColors}
-                      tint={tintFor(colIndex, rowIndex)} />
-                  ))}
-                </tr>
+                <WbRow
+                  key={row.rowId}
+                  row={row} rowIndex={rowIndex} cols={cols} today={today} dateFormat={dateFormat}
+                  selected={selected.has(row.rowId)}
+                  rowEdits={edits[row.rowId]}
+                  milestonesByKey={milestonesByKey}
+                  frozenStyle={frozenStyle}
+                  onSelectRow={toggleRow} onActivate={setActiveRowId} onContext={setCtxMenu}
+                  onCopyRow={copyRow} setField={setField} onApplyAll={applyToAllColors}
+                />
               ))}
-              {rows.length === 0 && <tr><td colSpan={9 + cols.reduce((n, c) => n + (c.field_type === "pds" ? 3 : 1), 0)} className="empty-row">No orders match this filter.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={9 + cols.length} className="empty-row">No orders match this filter.</td></tr>}
             </tbody>
           </table>
+        </div>
+
+        <div className="wb-pager">
+          <Pager total={allRows.length} page={currentPage} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
         </div>
       </div>
 

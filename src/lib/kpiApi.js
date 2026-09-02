@@ -182,7 +182,7 @@ export async function getKpiData(filters = {}) {
   // alongside each other so the balance still-to-ship is visible next to
   // what's already gone out. Value = Qty x FOB where FOB is visible to the
   // current user (view_fob-gated, same as everywhere else); shipped Qty
-  // uses the real shipped_qty from order_shipments, not the ordered qty.
+  // uses the real shipped_qty summed from shipment_lines, not the ordered qty.
   const openQty = openOrders.reduce((s, o) => s + (o.qty || 0), 0);
   const openValue = "fob" in (openOrders[0] || {}) ? openOrders.reduce((s, o) => s + (o.qty || 0) * (o.fob || 0), 0) : null;
   const shippedQty = shippedOrders.reduce((s, o) => s + (shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0), 0);

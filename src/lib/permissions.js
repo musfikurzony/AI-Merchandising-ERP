@@ -10,7 +10,7 @@ import { supabase } from "./supabaseClient.js";
 
 export async function hasPermission(key) {
   const { data, error } = await supabase.rpc("has_permission", { perm_key: key });
-  if (error) { console.error("has_permission RPC failed:", error); return false; }
+  if (error) throw error;
   return !!data;
 }
 
@@ -18,19 +18,29 @@ export async function hasModulePermission(moduleKey, action) {
   const { data, error } = await supabase.rpc("has_module_permission", {
     p_module_key: moduleKey, p_action: action,
   });
-  if (error) { console.error("has_module_permission RPC failed:", error); return false; }
+  if (error) throw error;
   return !!data;
 }
 
 /* Role -> landing route, per docs/01_Administration_User_Access_Management.md
    Section 6. Kept here as application-level routing logic (not a database
-   table) since it's a UI concern -- see that doc for why. */
+   table) since it's a UI concern -- see that doc for why.
+
+   From v86 every ERP role lands on /dashboard. The Dashboard itself is now
+   role-aware: it picks a management, merchandiser or shipping body from the
+   role and gates each section by module permission. Sending management to a
+   different ROUTE was the old way of personalising the landing page, and it
+   meant three half-finished landing screens instead of one good one.
+
+   Factory users are the deliberate exception: their portal is a genuinely
+   different application reading a restricted view, not a variant of this
+   shell. */
 export const ROLE_LANDING_ROUTE = {
   super_admin: "/dashboard", admin: "/dashboard",
-  management: "/executive-dashboard", manager: "/executive-dashboard",
+  management: "/dashboard", manager: "/dashboard",
   merchandiser: "/dashboard",
-  shipping: "/shipping", commercial: "/shipping",
+  shipping: "/dashboard", commercial: "/dashboard",
   qa: "/dashboard",
   factory_admin: "/factory", factory_user: "/factory",
-  read_only: "/executive-dashboard",
+  read_only: "/dashboard",
 };
