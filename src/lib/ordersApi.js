@@ -1,5 +1,11 @@
 import { supabase } from "../lib/supabaseClient.js";
 import { hasPermission } from "../lib/permissions.js";
+/* getOrderColorWaysForOrders() has called fetchAllByIds since v84 but the
+   import was never added, so the Orders list threw "fetchAllByIds is not
+   defined" the moment it tried to load colour ways. A bundler does not catch
+   this: an undeclared identifier is only an error when the line actually
+   runs. */
+import { fetchAllByIds } from "./supabaseFetch.js";
 
 /* Single shared query layer for orders -- per explicit instruction, "avoid
    duplicating order logic separately in every module." Dashboard, Orders,

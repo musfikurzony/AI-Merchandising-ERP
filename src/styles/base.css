@@ -150,6 +150,13 @@ body {
   --pei-amber-soft:  #FBF1DE;
   --pei-page:        #F5F2EC;
   --pei-surface:     #FFFFFF;
+  /* The second surface: table headers, chips and the quieter cards. It was
+     used in five places from v85 onward but never actually declared, so every
+     one of them rendered transparent — which is why the Workbench's sticky
+     milestone headers had rows scrolling through them while the frozen
+     headers, with their own literal colour, looked correct. Set to the value
+     those frozen headers already used, so the whole header row is one shade. */
+  --pei-surface-2:   #FAFBFC;
   --pei-border:      #E7E2D8;
   --pei-border-soft: #F0ECE4;
   --pei-ink:         #1B2434;
@@ -439,7 +446,7 @@ body { background: var(--pei-page); color: var(--pei-ink); }
 .wb-table th { padding: 6px 8px; font-size: 10.5px; }
 .wb-table td { padding: 4px 6px; font-size: 11.5px; box-sizing: border-box; }
 .wb-table th.wb-frozen, .wb-table td.wb-frozen { position: sticky; }
-.wb-table th.wb-frozen { background: #FAFBFC; }
+.wb-table th.wb-frozen { background: var(--pei-surface-2); }
 
 /* A native date input renders "mm/dd/yyyy" plus a calendar button; at the
    78px shared with text inputs the year was being cut to "202". Measured in
