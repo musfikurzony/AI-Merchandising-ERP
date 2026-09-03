@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, saveMilestoneEdits, getColumnPrefs, saveColumnPrefs } from "../../lib/workbenchApi.js";
+import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, saveMilestoneEdits, saveOrderFieldEdits, getColumnPrefs, saveColumnPrefs, ORDER_FIELD_COLUMNS, isOrderFieldKey } from "../../lib/workbenchApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
 import { reminderFor, reminderTitle, todayIso, REMINDER_NONE, REMINDER_WINDOW_DAYS } from "../../lib/milestoneReminder.js";
 import { Pager } from "../../components/Pager.jsx";
@@ -88,8 +88,17 @@ function tintFor(colIndex, orderIdx) {
   return band !== "#FFFFFF" ? band : col;
 }
 
-function fieldsFor(col, milestone, edits) {
+function fieldsFor(col, milestone, edits, order) {
   const edit = edits || {};
+  /* Fabric Reference lives on the order, not on a milestone row. The saved
+     value is read from the column; anything already typed into the old
+     milestone row is used only as a fallback so nothing entered before this
+     change disappears from the screen. */
+  if (isOrderFieldKey(col.key)) {
+    const column = ORDER_FIELD_COLUMNS[col.key];
+    const saved = order?.[column] ?? milestone?.text_value ?? "";
+    return { value: column in edit ? edit[column] : saved };
+  }
   if (col.field_type === "pds") {
     return {
       plan: ("plan_date" in edit ? edit.plan_date : milestone?.plan_date) || "",
@@ -117,7 +126,7 @@ function fieldsFor(col, milestone, edits) {
    without touching the second. */
 function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint, today }) {
   const disabled = col.style_level && row.colorIdx > 0;
-  const f = fieldsFor(col, milestone, edit);
+  const f = fieldsFor(col, milestone, edit, row.order);
   const showApply = !col.style_level && row.spanCount > 1 && !disabled;
   const tintStyle = tint ? { background: tint } : undefined;
 
@@ -163,7 +172,8 @@ function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint,
     );
   }
   if (col.field_type === "text") {
-    return <td className="wb-cell-with-action" style={tintStyle}><input className="wb-input wb-input-wide" value={f.value} onChange={e => setField(row, col, "text_value", e.target.value)} />{showApply && <button className="wb-apply-btn" onClick={() => onApplyAll(row, col)}>⇉</button>}</td>;
+    const field = isOrderFieldKey(col.key) ? ORDER_FIELD_COLUMNS[col.key] : "text_value";
+    return <td className="wb-cell-with-action" style={tintStyle}><input className="wb-input wb-input-wide" title={f.value || col.label} value={f.value} onChange={e => setField(row, col, field, e.target.value)} />{showApply && <button className="wb-apply-btn" onClick={() => onApplyAll(row, col)}>⇉</button>}</td>;
   }
   if (col.field_type === "single") {
     return <td className="wb-cell-with-action" style={tintStyle}><input className="wb-input" value={f.value} onChange={e => setField(row, col, "single_value", e.target.value)} />{showApply && <button className="wb-apply-btn" onClick={() => onApplyAll(row, col)}>⇉</button>}</td>;
@@ -186,6 +196,63 @@ function MilestoneCells({ row, col, milestone, edit, setField, onApplyAll, tint,
    comparison is a handful of identity checks per row and only the edited row
    re-renders. No virtualisation, no windowing library, and no change to
    filtering, selection or the save path. */
+function frozenCellContent(key, row, dateFormat, helpers) {
+  switch (key) {
+    case "select":  return <input type="checkbox" checked={helpers.selected} onChange={() => helpers.onSelectRow(row.rowId)} />;
+    case "po":      return `${row.order.po_prefix}${row.order.po_number}`;
+    case "style":   return row.order.style;
+    case "color":   return row.colorName;
+    case "factory": return row.order.factories?.name || "—";
+    case "label":   return row.order.labels?.name || "—";
+    case "qty":     return fmtNum(row.colorQty);
+    case "fob":     return "fob" in row.order ? fmtFob(row.order.fob) : "—";
+    case "etd":     return fmtCompact(row.order.etd, dateFormat);
+    case "revEtd":  return fmtCompact(row.order.revised_etd, dateFormat);
+    case "actions": return (
+      <>
+        <Link to={`/orders/${row.order.id}`} className="wb-icon-btn" title="Open order">↗</Link>
+        <button className="wb-icon-btn" title="Copy Entire T&A" onClick={() => helpers.onCopyRow(row.rowId)}>⧉</button>
+      </>
+    );
+    default: return null;
+  }
+}
+
+/* The tooltip is the full value for any column that clips, so a truncated
+   factory name is still readable without widening the column for everyone. */
+function frozenCellTitle(key, row, dateFormat) {
+  switch (key) {
+    case "po":      return `${row.order.po_prefix}${row.order.po_number}`;
+    case "style":   return row.order.style || "";
+    case "color":   return row.colorName || "";
+    case "factory": return row.order.factories?.name || "";
+    case "label":   return row.order.labels?.name || "";
+    case "qty":     return fmtNum(row.colorQty);
+    case "fob":     return "fob" in row.order ? fmtFob(row.order.fob) : "";
+    case "etd":     return row.order.etd || "";
+    case "revEtd":  return row.order.revised_etd || "";
+    default: return undefined;
+  }
+}
+
+const FROZEN_CELL_CLASS = {
+  po: "mono strong", style: "mono", color: "mono",
+  factory: "wb-name", label: "wb-name",
+  qty: "mono wb-num", fob: "mono wb-num", etd: "mono", revEtd: "mono",
+};
+
+function renderFrozenCell(c, i, helpers) {
+  const { row, frozenStyle, dateFormat } = helpers;
+  return (
+    <td key={c.key}
+      className={`wb-frozen wb-frozen-${i} ${i === FROZEN_COLUMNS.length - 1 ? "wb-freeze-edge" : ""} ${FROZEN_CELL_CLASS[c.key] || ""}`.trim()}
+      style={frozenStyle(i)}
+      title={frozenCellTitle(c.key, row, dateFormat)}>
+      {frozenCellContent(c.key, row, dateFormat, helpers)}
+    </td>
+  );
+}
+
 const WbRow = React.memo(function WbRow({
   row, rowIndex, cols, today, dateFormat, selected, rowEdits, milestonesByKey,
   frozenStyle, onSelectRow, onActivate, onContext, onCopyRow, setField, onApplyAll,
@@ -199,18 +266,14 @@ const WbRow = React.memo(function WbRow({
     ].filter(Boolean).join(" ")}
       onClick={() => onActivate(row.rowId)}
       onContextMenu={e => { e.preventDefault(); onActivate(row.rowId); onContext({ x: e.clientX, y: e.clientY, rowId: row.rowId }); }}>
-      <td className="wb-frozen wb-frozen-0" style={frozenStyle(0)}><input type="checkbox" checked={selected} onChange={() => onSelectRow(row.rowId)} /></td>
-      <td className="wb-frozen wb-frozen-1 mono strong" style={frozenStyle(1)} title={`${row.order.po_prefix}${row.order.po_number}`}>{row.order.po_prefix}{row.order.po_number}</td>
-      <td className="wb-frozen wb-frozen-2 mono" style={frozenStyle(2)} title={row.order.style}>{row.order.style}</td>
-      <td className="wb-frozen wb-frozen-3 mono" style={frozenStyle(3)} title={row.colorName}>{row.colorName}</td>
-      <td className="wb-frozen wb-frozen-4 mono wb-num" style={frozenStyle(4)} title={fmtNum(row.colorQty)}>{fmtNum(row.colorQty)}</td>
-      <td className="wb-frozen wb-frozen-5 mono wb-num" style={frozenStyle(5)} title={"fob" in row.order ? fmtFob(row.order.fob) : ""}>{"fob" in row.order ? fmtFob(row.order.fob) : "—"}</td>
-      <td className="wb-frozen wb-frozen-6 mono" style={frozenStyle(6)} title={row.order.etd || ""}>{fmtCompact(row.order.etd, dateFormat)}</td>
-      <td className="wb-frozen wb-frozen-7 mono" style={frozenStyle(7)} title={row.order.revised_etd || ""}>{fmtCompact(row.order.revised_etd, dateFormat)}</td>
-      <td className="wb-frozen wb-frozen-8" style={frozenStyle(8)}>
-        <Link to={`/orders/${row.order.id}`} className="wb-icon-btn" title="Open order">↗</Link>
-        <button className="wb-icon-btn" title="Copy Entire T&amp;A" onClick={() => onCopyRow(row.rowId)}>⧉</button>
-      </td>
+      {/* Rendered by mapping FROZEN_COLUMNS rather than by hand-numbered
+          indices. The previous version hardcoded wb-frozen-0 through -8, so
+          inserting Factory and Label would have shifted every following
+          column's width and sticky offset onto the wrong column — the same
+          class of drift this file's geometry was moved to data to prevent. */}
+      {FROZEN_COLUMNS.map((c, i) => renderFrozenCell(c, i, {
+        row, selected, onSelectRow, onCopyRow, frozenStyle, dateFormat,
+      }))}
       {cols.map((col, colIndex) => (
         <MilestoneCells today={today} key={col.key} row={row} col={col}
           milestone={milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`]}
@@ -262,7 +325,7 @@ export default function Workbench() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const [f, setF] = useState({ lifecycle: "open", q: "", factory: "all", productGroup: "all", merchandiser: "all", risk: "all", etdFrom: "", etdTo: "" });
+  const [f, setF] = useState({ lifecycle: "open", q: "", factory: "all", label: "all", productGroup: "all", merchandiser: "all", risk: "all", etdFrom: "", etdTo: "" });
   const [edits, setEdits] = useState({}); // rowId -> milestoneKey -> { field: value }
   const [selected, setSelected] = useState(() => new Set());
   const [clipboard, setClipboard] = useState(null);
@@ -310,6 +373,8 @@ export default function Workbench() {
 
   const productGroups = useMemo(() => [...new Set(orders.map(o => o.product_groups?.name).filter(Boolean))], [orders]);
   const merchandisers = useMemo(() => [...new Set(orders.map(o => o.profiles?.full_name).filter(Boolean))], [orders]);
+  const factories = useMemo(() => [...new Set(orders.map(o => o.factories?.name).filter(Boolean))].sort(), [orders]);
+  const labels = useMemo(() => [...new Set(orders.map(o => o.labels?.name).filter(Boolean))].sort(), [orders]);
 
   /* These three were computed inline on every render, which quietly defeated
      the memoised rows: `filteredOrders` returned a new array each time, so
@@ -321,6 +386,8 @@ export default function Workbench() {
     (f.lifecycle === "all" || (f.lifecycle === "shipped" ? o.status === "shipped" : o.status !== "shipped")) &&
     (f.productGroup === "all" || o.product_groups?.name === f.productGroup) &&
     (f.merchandiser === "all" || o.profiles?.full_name === f.merchandiser) &&
+    (f.factory === "all" || o.factories?.name === f.factory) &&
+    (f.label === "all" || o.labels?.name === f.label) &&
     (f.risk === "all" || o.risk === f.risk) &&
     (!f.q || `${o.po_prefix}${o.po_number} ${o.style} ${o.customers?.name || ""}`.toLowerCase().includes(f.q.toLowerCase())) &&
     (!f.etdFrom || !o.etd || o.etd >= f.etdFrom) &&
@@ -466,12 +533,23 @@ export default function Workbench() {
       // for the API -- milestones live on the order, not the color row,
       // except style-level ones are already only editable on the first row.
       const byOrder = {};
+      const orderFields = {};
       for (const [rowId, milestones] of Object.entries(edits)) {
         const row = allRows.find(r => r.rowId === rowId);
         if (!row) continue;
-        byOrder[row.order.id] = { ...(byOrder[row.order.id] || {}), ...milestones };
+        for (const [compoundKey, fields] of Object.entries(milestones)) {
+          const milestoneKey = compoundKey.split("::")[0];
+          if (isOrderFieldKey(milestoneKey)) {
+            /* Routed to an UPDATE on orders, so the Workbench and Edit Order
+               write the same column and can never disagree again. */
+            orderFields[row.order.id] = { ...(orderFields[row.order.id] || {}), ...fields };
+          } else {
+            byOrder[row.order.id] = { ...(byOrder[row.order.id] || {}), [compoundKey]: fields };
+          }
+        }
       }
       await saveMilestoneEdits(byOrder);
+      await saveOrderFieldEdits(orderFields);
       setEdits({}); setSelected(new Set());
       await refresh();
     } catch (e) {
@@ -500,6 +578,14 @@ export default function Workbench() {
     });
   }, [allRows]);
   function fieldsFromMilestone(row, col) {
+    /* An order-field column snapshots the ORDER's column, so copying a T&A
+       carries the fabric reference that is actually shown rather than a stale
+       milestone row. */
+    if (isOrderFieldKey(col.key)) {
+      const column = ORDER_FIELD_COLUMNS[col.key];
+      const m = milestonesByKey[`${row.order.id}|${col.key}|`];
+      return { [column]: row.order[column] ?? m?.text_value ?? "" };
+    }
     const m = milestonesByKey[`${row.order.id}|${col.key}|${col.color_level ? row.colorName : ""}`];
     if (!m) return {};
     return { plan_date: m.plan_date, actual_date: m.actual_date, status: m.status, text_value: m.text_value, single_value: m.single_value };
@@ -514,7 +600,7 @@ export default function Workbench() {
     const row = allRows.find(r => r.rowId === rowId);
     if (!row) return;
     const snapshot = getRowSnapshot(row);
-    const fabRef = snapshot.fab_ref?.text_value ?? milestonesByKey[`${row.order.id}|fab_ref|`]?.text_value ?? "";
+    const fabRef = snapshot.fab_ref?.fabric_ref ?? row.order.fabric_ref ?? milestonesByKey[`${row.order.id}|fab_ref|`]?.text_value ?? "";
     setClipboard({ sourceRowId: rowId, sourcePo: `${row.order.po_prefix}${row.order.po_number}`, sourceColor: row.colorName, fabRef, snapshot });
     setCtxMenu(null);
   }, [allRows, milestonesByKey]);
@@ -544,7 +630,7 @@ export default function Workbench() {
       if (id === clipboard.sourceRowId) return;
       const row = rows.find(r => r.rowId === id);
       if (!row) return;
-      const destFabRef = edits[id]?.fab_ref?.text_value ?? milestonesByKey[`${row.order.id}|fab_ref|`]?.text_value ?? "";
+      const destFabRef = edits[id]?.fab_ref?.fabric_ref ?? row.order.fabric_ref ?? milestonesByKey[`${row.order.id}|fab_ref|`]?.text_value ?? "";
       if (destFabRef !== clipboard.fabRef) mismatches.push({ rowId: id, po: `${row.order.po_prefix}${row.order.po_number}`, color: row.colorName, fabRef: destFabRef });
     });
     if (mismatches.length > 0) setPasteWarning({ targets: targetRowIds, mismatches });
@@ -584,15 +670,18 @@ export default function Workbench() {
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
 
       <div className="filter-row wb-filters">
-        <input className="table-search" placeholder="Search PO, style, customer…" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
+        <input className="table-search wb-search" placeholder="Search PO, style, customer…" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
         <button className={"filter-chip" + (f.lifecycle === "open" ? " active" : "")} onClick={() => setF({ ...f, lifecycle: "open" })}>Open Orders</button>
         <button className={"filter-chip" + (f.lifecycle === "shipped" ? " active" : "")} onClick={() => setF({ ...f, lifecycle: "shipped" })}>Shipped Orders</button>
         <button className={"filter-chip" + (f.lifecycle === "all" ? " active" : "")} onClick={() => setF({ ...f, lifecycle: "all" })}>All Orders</button>
         <select value={f.productGroup} onChange={e => setF({ ...f, productGroup: e.target.value })}><option value="all">All Product Groups</option>{productGroups.map(x => <option key={x} value={x}>{x}</option>)}</select>
         <select value={f.merchandiser} onChange={e => setF({ ...f, merchandiser: e.target.value })}><option value="all">All Merchandisers</option>{merchandisers.map(x => <option key={x} value={x}>{x}</option>)}</select>
+        <select value={f.factory} onChange={e => setF({ ...f, factory: e.target.value })} title="Factory"><option value="all">All Factories</option>{factories.map(x => <option key={x} value={x}>{x}</option>)}</select>
+        <select value={f.label} onChange={e => setF({ ...f, label: e.target.value })} title="Label"><option value="all">All Labels</option>{labels.map(x => <option key={x} value={x}>{x}</option>)}</select>
         <select value={f.risk} onChange={e => setF({ ...f, risk: e.target.value })}><option value="all">All Risk</option><option value="onTrack">On Track</option><option value="atRisk">At Risk</option><option value="critical">Critical</option><option value="aging">Aging</option></select>
         <input type="date" value={f.etdFrom} onChange={e => setF({ ...f, etdFrom: e.target.value })} title="ETD from" />
         <input type="date" value={f.etdTo} onChange={e => setF({ ...f, etdTo: e.target.value })} title="ETD to" />
+        <span className="wb-tools">
         <ColumnSettingsButton milestoneTypes={milestoneTypes} colPrefs={colPrefs} setColPrefs={setColPrefs} onPersist={saveColumnPrefs} />
         <button className="btn-ghost-sm" onClick={autoFitAll} title="Size PO, Style, Color, Qty, FOB, ETD and Rev ETD to the widest value currently on screen">
           Fit columns
@@ -600,6 +689,7 @@ export default function Workbench() {
         <button className="btn-ghost-sm" onClick={resetWidths} title="Back to the default column widths">
           Reset widths
         </button>
+        </span>
       </div>
 
       {selected.size > 0 && (
@@ -637,17 +727,17 @@ export default function Workbench() {
             </colgroup>
             <thead>
               <tr>
-                <th rowSpan={2} className="wb-frozen wb-frozen-0" style={frozenStyle(0)}>
-                  <input type="checkbox" title="Select every row on this page" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleAll} />
-                </th>
-                <FrozenTh i={1}>PO</FrozenTh>
-                <FrozenTh i={2}>Style</FrozenTh>
-                <FrozenTh i={3}>Color</FrozenTh>
-                <FrozenTh i={4}>Qty</FrozenTh>
-                <FrozenTh i={5}>FOB</FrozenTh>
-                <FrozenTh i={6}>ETD</FrozenTh>
-                <FrozenTh i={7}>Rev ETD</FrozenTh>
-                <th rowSpan={2} className="wb-frozen wb-frozen-8" style={frozenStyle(8)}></th>
+                {FROZEN_COLUMNS.map((c, i) =>
+                  c.key === "select" ? (
+                    <th key={c.key} rowSpan={2} className="wb-frozen wb-frozen-0" style={frozenStyle(0)}>
+                      <input type="checkbox" title="Select every row on this page" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleAll} />
+                    </th>
+                  ) : c.key === "actions" ? (
+                    <th key={c.key} rowSpan={2} className={`wb-frozen wb-frozen-${i} wb-freeze-edge`} style={frozenStyle(i)} />
+                  ) : (
+                    <FrozenTh key={c.key} i={i}>{c.label}</FrozenTh>
+                  )
+                )}
                 {cols.map(col => (
                   <th key={col.key} rowSpan={2} className={col.field_type === "pds" ? "wb-ms-th" : undefined}>
                     {col.label}{col.style_level ? " (style-level)" : ""}

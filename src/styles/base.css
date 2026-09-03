@@ -70,13 +70,23 @@ body {
    nudged, which is exactly how ETD, then Qty, then FOB each ended up too
    narrow for their own contents. What remains here is only what doesn't
    depend on width. */
+/* Every frozen cell carries the divider; the LAST one carries the shadow that
+   marks the freeze line. Written as :last-child rather than a hardcoded index
+   so adding a column (Factory and Label in v90) cannot leave the shadow on the
+   wrong column — which is exactly what a `.wb-frozen-8` rule would have done. */
 .wb-frozen-0 { border-right: 1px solid #E5E7EB; text-align: center; }
-.wb-frozen-1, .wb-frozen-2, .wb-frozen-3, .wb-frozen-4,
-.wb-frozen-5, .wb-frozen-6, .wb-frozen-7 { border-right: 1px solid #E5E7EB; }
-.wb-frozen-8 { border-right: 1px solid #E5E7EB; box-shadow: 3px 0 6px -2px rgba(0,0,0,0.18); overflow: visible; white-space: nowrap; text-align: center; }
+.wb-table tr > .wb-frozen { border-right: 1px solid #E5E7EB; }
+.wb-table tr > .wb-frozen:last-of-type,
+.wb-table tr > .wb-frozen + :not(.wb-frozen) { }
+.wb-table tr > .wb-frozen.wb-freeze-edge {
+  box-shadow: 3px 0 6px -2px rgba(0,0,0,0.18); overflow: visible; white-space: nowrap; text-align: center;
+}
+/* Factory and Label hold names, not codes: proportional type reads better and
+   they clip with an ellipsis rather than widening the frozen block. */
+.wb-table .wb-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The two date columns never ellipsize -- they are sized for the longest
    selectable format. Qty and FOB are right-aligned, as figures should be. */
-.wb-frozen-6, .wb-frozen-7 { text-overflow: clip; }
+.wb-table td.wb-frozen.mono { text-overflow: clip; }
 .wb-num { text-align: right; }
 
 /* Resize handle: a hit target wider than the line it draws, so it can be
@@ -115,7 +125,9 @@ body {
 .col-settings-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; cursor: pointer; }
 .wb-input { width: 78px; font-size: 11px; padding: 3px 4px; border: 1px solid #E2E5EA; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; }
 .wb-input:disabled { background: #F3F4F6; color: #9CA3AF; }
-.wb-input-wide { width: 110px; }
+/* Sized to the 232px text column, less the cell padding and the room the
+   "apply to all colours" button needs. */
+.wb-input-wide { width: 196px; }
 .wb-status { font-size: 10px; padding: 3px 2px; border-radius: 6px; border: 1px solid #E2E5EA; max-width: 78px; }
 .wb-status:disabled { background: #F3F4F6; color: #9CA3AF; }
 .wb-table thead th { white-space: normal; line-height: 1.25; vertical-align: bottom; padding-bottom: 6px; max-width: 160px; }
@@ -1053,3 +1065,48 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
 .gs-note { padding: 14px 14px; font-size: 12.5px; color: var(--pei-muted); }
 .gs-note.gs-error { color: var(--pei-bad-fg); }
 .gs-foot { padding: 7px 12px; font-size: 11px; color: var(--pei-faint); background: var(--pei-surface-2); border-top: 1px solid var(--pei-border-soft); }
+
+/* ==========================================================================
+   v90 — maximise on every preview, and a Workbench with room to work.
+   ========================================================================== */
+
+/* --- maximise -------------------------------------------------------------
+   A thirty-column export is exactly what you most need the whole screen for.
+   The same control and the same shortcut on every preview, so it is learned
+   once. */
+.pv-headrow { display: flex; align-items: center; gap: 12px; }
+.pv-max-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--pei-border); background: var(--pei-surface);
+  border-radius: 7px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+  color: var(--pei-ink-2);
+}
+.pv-max-btn:hover { border-color: var(--pei-amber); color: var(--pei-ink); }
+.pv-max-btn:focus-visible { outline: 2px solid var(--pei-amber); outline-offset: 1px; }
+.pv-max-btn span { font-size: 13px; line-height: 1; }
+
+/* Maximised means the screen, less a hairline of backdrop so it still reads
+   as a window over the page rather than a navigation. */
+.pv-backdrop:has(.pv-max) { padding: 10px; }
+.pv-box.pv-max { width: 100%; max-width: none; max-height: calc(100vh - 20px); }
+.pv-box.pv-max .pv-sheet, .pv-box.pv-max .pv-paper { max-width: none; }
+
+/* --- Workbench: give the rows the screen ----------------------------------
+   The chrome above the grid — summary bar, two filter rows, the legend —
+   was taking roughly a third of the viewport before a single order appeared.
+   The filters now sit on one line and the legend is a single quiet strip, so
+   the grid starts higher and the height formula below gets more to work with. */
+.wb-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.wb-filters > * { flex: 0 0 auto; }
+.wb-filters .wb-search { flex: 1 1 190px; min-width: 150px; }
+.wb-filters select, .wb-filters input { padding: 6px 9px; font-size: 12px; }
+.wb-filters .wb-tools { margin-left: auto; display: flex; gap: 8px; }
+
+.wb-legend { padding: 6px 2px 4px; font-size: 11px; gap: 14px; }
+.wb-legend .sw { width: 18px; height: 12px; }
+.wb-summary-bar { padding: 10px 16px; }
+
+/* Recomputed for the tighter chrome: this is what is left of the viewport
+   once the app header, the summary bar, one filter row, the legend and the
+   pager are accounted for. */
+.wb-card .tna-scroll { max-height: max(460px, calc(100vh - 268px)); }

@@ -33,11 +33,21 @@
                                                           wider than needed)
      Rev ETD same as ETD                                → 96
 */
+/* Factory and Label were added in v90 at the owner's request: finding the one
+   order to update means recognising it, and "which factory / which label" is
+   how a merchandiser recognises it. They are deliberately narrower than their
+   longest value and clip with an ellipsis — a factory name like "OCEAN SWEATER
+   IND. (PVT) LTD" would otherwise eat 190px of the frozen block on every row,
+   and the frozen block is space taken away from the milestones. The full name
+   is on the cell's tooltip, and either column can be dragged wider or hidden
+   like any other. */
 export const FROZEN_COLUMNS = [
   { key: "select",  label: "",        width: 34,  min: 32,  max: 44,  resizable: false },   // a checkbox carries ~6px of its own margin
   { key: "po",      label: "PO",      width: 88,  min: 62,  max: 220 },
   { key: "style",   label: "Style",   width: 96,  min: 62,  max: 240 },
   { key: "color",   label: "Color",   width: 140, min: 70,  max: 320 },
+  { key: "factory", label: "Factory", width: 118, min: 60,  max: 300, clip: true, optional: true },
+  { key: "label",   label: "Label",   width: 104, min: 60,  max: 260, clip: true, optional: true },
   { key: "qty",     label: "Qty",     width: 84,  min: 60,  max: 180, align: "right" },
   { key: "fob",     label: "FOB",     width: 82,  min: 60,  max: 180, align: "right" },
   { key: "etd",     label: "ETD",     width: 96,  min: 72,  max: 200, clip: true },
@@ -71,11 +81,18 @@ export const FROZEN_COLUMNS = [
    The width is measured, not guessed: a native date input with its calendar
    button needs ~126px at this font, and 150px carries it with the "P"/"A"
    gutter and cell padding. */
-export const MILESTONE_WIDTHS = { stack: 150, single: 156 };
+/* A free-text column holds things like "TERESA(TM505-AH116)DADA-FUHUA FABRIC"
+   — 36 characters, where a date is 8. Sizing it the same as a single-date
+   column clipped every fabric reference in the grid, so text gets its own
+   width and the cell carries the full value on hover. */
+export const MILESTONE_WIDTHS = { stack: 150, single: 156, text: 232 };
 
 export function milestoneWidthsFor(cols) {
   const out = [];
-  for (const c of cols || []) out.push(c.field_type === "pds" ? MILESTONE_WIDTHS.stack : MILESTONE_WIDTHS.single);
+  for (const c of cols || []) out.push(
+    c.field_type === "pds" ? MILESTONE_WIDTHS.stack
+    : c.field_type === "text" ? MILESTONE_WIDTHS.text
+    : MILESTONE_WIDTHS.single);
   return out;
 }
 
@@ -100,6 +117,12 @@ export function clampWidth(index, width) {
 
 const STORAGE_KEY = "erp.workbench.frozenWidths.v1";
 
+/* A saved width array from before Factory and Label existed has nine entries
+   where there are now eleven. Restoring it positionally would shift every
+   column's width onto the wrong column — the geometry equivalent of an
+   off-by-two. Anything of the wrong length is simply discarded in favour of
+   the defaults, which is a one-time loss of a personal preference rather than
+   a grid that silently renders wrong. */
 export function loadWidths() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

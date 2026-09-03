@@ -21,7 +21,7 @@ export async function listWorkbenchOrders() {
   const fobSelect = canFob ? ", fob" : "";
   const { data, error } = await supabase.from("orders")
     .select(`
-      id, po_prefix, po_number, style, qty, etd, revised_etd, status, risk, factory_code${fobSelect},
+      id, po_prefix, po_number, style, qty, etd, revised_etd, status, risk, factory_code, fabric_ref${fobSelect},
       customers(name), product_groups(name), factories(name), profiles!orders_primary_merchandiser_id_fkey(full_name),
       labels(code, name), business_units(code, name)
     `)
@@ -54,6 +54,41 @@ export async function listMilestones(orderIds) {
    way, not one shared value per order). One upsert per (order, milestone,
    color way) actually touched -- not a blind rewrite of everything in the
    grid. */
+/* ==========================================================================
+   Fabric Reference has one home, and it is `orders.fabric_ref`.
+   ==========================================================================
+   It had two. Edit Order wrote the `orders.fabric_ref` COLUMN; the Workbench
+   read and wrote an `order_milestones` row keyed `fab_ref` with a text_value.
+   The two never met, which is why RT30729 showed
+   "TERESA(TM505-AH116)DADA-FUHUA FABRIC" on the order and a blank cell in the
+   Workbench.
+
+   The column wins, and not arbitrarily: it is what the PLM import populates,
+   what Backup & Export reads, what the Orders export reads, and what Order
+   Detail shows. It is also an attribute of the ORDER — one value per PO+style,
+   not one per milestone or per colour — so the milestone row was the wrong
+   shape for it as well as the wrong place.
+
+   Reads fall back to any text_value already typed into the Workbench so that
+   nothing anyone entered disappears; writes go only to the column. Migration
+   38 back-fills the column from those rows, after which the fallback can go. */
+export const ORDER_FIELD_COLUMNS = { fab_ref: "fabric_ref" };
+
+export function isOrderFieldKey(key) {
+  return Object.prototype.hasOwnProperty.call(ORDER_FIELD_COLUMNS, key);
+}
+
+/* One UPDATE per order actually touched — not a rewrite of every row on the
+   page. */
+export async function saveOrderFieldEdits(orderFieldEdits) {
+  const entries = Object.entries(orderFieldEdits || {});
+  if (!entries.length) return;
+  for (const [orderId, fields] of entries) {
+    const { error } = await supabase.from("orders").update(fields).eq("id", orderId);
+    if (error) throw error;
+  }
+}
+
 export async function saveMilestoneEdits(edits) {
   const { data: { user } } = await supabase.auth.getUser();
   const rows = [];

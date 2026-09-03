@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { usePreviewSize, MaximizeButton } from "./usePreviewSize.jsx";
 import { sheetColumns, isNumericColumn, sheetToTSV, copyToClipboard, downloadWorkbook } from "../lib/exportPreview.js";
 
 /* Excel export, preview first.
@@ -24,6 +25,7 @@ function fmtCell(v) {
 }
 
 export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileName, onClose }) {
+  const { maximized, toggle, boxClass } = usePreviewSize(onClose);
   const [active, setActive] = useState(0);
   const [copied, setCopied] = useState(null);
   const usable = (sheets || []).filter(Boolean);
@@ -43,9 +45,12 @@ export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileN
 
   return (
     <div className="pv-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pv-box">
+      <div className={boxClass}>
         <div className="pv-head">
-          <div className="pv-eyebrow">Excel export — preview</div>
+          <div className="pv-headrow">
+            <div className="pv-eyebrow">Excel export — preview</div>
+            <MaximizeButton maximized={maximized} onToggle={toggle} />
+          </div>
           <h3 className="pv-title">{title}</h3>
           <div className="pv-meta">
             {[subtitle, meta, `${usable.length} sheet${usable.length === 1 ? "" : "s"} · ${totalRows.toLocaleString()} rows total`].filter(Boolean).join("  ·  ")}

@@ -268,6 +268,13 @@ export default function OrdersList() {
           <option value="">All Customers</option>
           {options.customers.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
         </select>
+        {/* Factory filters at the DATABASE, not in the browser — listOrders
+            already accepts factoryCode, so this narrows the query rather than
+            fetching everything and hiding rows. */}
+        <select value={filters.factoryCode} onChange={e => setFilters({ ...filters, factoryCode: e.target.value })} style={{ padding: 8 }}>
+          <option value="">All Factories</option>
+          {(options.factories || []).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
+        </select>
         <select value={filters.merchandiser} onChange={e => setFilters({ ...filters, merchandiser: e.target.value })} style={{ padding: 8 }}>
           <option value="">All Merchandisers</option>
           {merchandisers.map(m => <option key={m} value={m}>{m}</option>)}
@@ -276,7 +283,7 @@ export default function OrdersList() {
         <span style={{ alignSelf: "center", color: "#9CA3AF" }}>to</span>
         <input type="date" value={filters.etdTo} onChange={e => setFilters({ ...filters, etdTo: e.target.value })} style={{ padding: 8 }} title="ETD to" />
         <input placeholder="Search PO, style, customer…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ padding: 8, flex: 1, minWidth: 200 }} />
-        <button className="btn-ghost-sm" onClick={() => { setFilters({ productGroupCode: "", labelCode: "", customerCode: "", merchandiser: "", etdFrom: "", etdTo: "" }); setSearchTerm(""); setLifecycle("all"); }}>Clear Filters</button>
+        <button className="btn-ghost-sm" onClick={() => { setFilters({ productGroupCode: "", labelCode: "", customerCode: "", merchandiser: "", etdFrom: "", etdTo: "", factoryCode: "", onlyMine: false }); setSearchTerm(""); setLifecycle("all"); }}>Clear Filters</button>
         <button className="btn-primary" onClick={exportToExcel} disabled={exporting || orders.length === 0}>{exporting ? "Exporting..." : "Export to Excel"}</button>
       </div>
 

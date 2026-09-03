@@ -1,4 +1,5 @@
 import React from "react";
+import { usePreviewSize, MaximizeButton } from "./usePreviewSize.jsx";
 import { generateCorporatePDF } from "../lib/pdfReportApi.js";
 
 /* PDF export, preview first.
@@ -16,6 +17,7 @@ import { generateCorporatePDF } from "../lib/pdfReportApi.js";
    descriptor straight to the generator. */
 
 export default function ReportPreviewModal({ descriptor, onClose }) {
+  const { maximized, toggle, boxClass } = usePreviewSize(onClose);
   if (!descriptor) return null;
   const {
     companyName = "PERRY ELLIS INTERNATIONAL — BANGLADESH",
@@ -28,9 +30,12 @@ export default function ReportPreviewModal({ descriptor, onClose }) {
 
   return (
     <div className="pv-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pv-box">
+      <div className={boxClass}>
         <div className="pv-head">
-          <div className="pv-eyebrow">PDF export — preview</div>
+          <div className="pv-headrow">
+            <div className="pv-eyebrow">PDF export — preview</div>
+            <MaximizeButton maximized={maximized} onToggle={toggle} />
+          </div>
           <h3 className="pv-title">{reportName}</h3>
           <div className="pv-meta">This is the document that will be produced — {rows.length.toLocaleString()} rows, A4 landscape. Nothing is saved to your computer until you press Download.</div>
         </div>
