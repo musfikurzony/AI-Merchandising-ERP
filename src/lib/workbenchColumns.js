@@ -33,21 +33,24 @@
                                                           wider than needed)
      Rev ETD same as ETD                                → 96
 */
-/* Factory and Label were added in v90 at the owner's request: finding the one
-   order to update means recognising it, and "which factory / which label" is
-   how a merchandiser recognises it. They are deliberately narrower than their
-   longest value and clip with an ellipsis — a factory name like "OCEAN SWEATER
-   IND. (PVT) LTD" would otherwise eat 190px of the frozen block on every row,
-   and the frozen block is space taken away from the milestones. The full name
-   is on the cell's tooltip, and either column can be dragged wider or hidden
-   like any other. */
+/* Factory and Label are FILTERS, not columns.
+
+   v90 added them here as frozen columns as well as dropdown filters. That was
+   wrong, and the reason is worth writing down because it is the governing
+   trade-off for this whole array: every pixel in the frozen block is a pixel
+   taken away from the milestone area, which is the part of the Workbench
+   people actually type into. Factory and Label cost 222px — most of one
+   milestone column — to show two values that do not change while you work and
+   that the merchandiser already narrowed the grid by. Narrowing by a value
+   and then reading that same value back on every row is redundant.
+
+   So they stay in the filter bar and are gone from here. If a row's factory
+   is ever needed at a glance, the PO opens the order. */
 export const FROZEN_COLUMNS = [
   { key: "select",  label: "",        width: 34,  min: 32,  max: 44,  resizable: false },   // a checkbox carries ~6px of its own margin
   { key: "po",      label: "PO",      width: 88,  min: 62,  max: 220 },
   { key: "style",   label: "Style",   width: 96,  min: 62,  max: 240 },
   { key: "color",   label: "Color",   width: 140, min: 70,  max: 320 },
-  { key: "factory", label: "Factory", width: 118, min: 60,  max: 300, clip: true, optional: true },
-  { key: "label",   label: "Label",   width: 104, min: 60,  max: 260, clip: true, optional: true },
   { key: "qty",     label: "Qty",     width: 84,  min: 60,  max: 180, align: "right" },
   { key: "fob",     label: "FOB",     width: 82,  min: 60,  max: 180, align: "right" },
   { key: "etd",     label: "ETD",     width: 96,  min: 72,  max: 200, clip: true },
@@ -117,12 +120,18 @@ export function clampWidth(index, width) {
 
 const STORAGE_KEY = "erp.workbench.frozenWidths.v1";
 
-/* A saved width array from before Factory and Label existed has nine entries
-   where there are now eleven. Restoring it positionally would shift every
-   column's width onto the wrong column — the geometry equivalent of an
-   off-by-two. Anything of the wrong length is simply discarded in favour of
-   the defaults, which is a one-time loss of a personal preference rather than
-   a grid that silently renders wrong. */
+/* Widths are stored positionally, so a saved array only means anything if it
+   has one entry per column. A v90 browser saved eleven (Factory and Label were
+   columns then); there are nine now, and restoring those positionally would
+   put Qty's width on ETD — the geometry equivalent of an off-by-two. Anything
+   of the wrong length is discarded in favour of the defaults: a one-time loss
+   of a personal preference, rather than a grid that silently renders wrong.
+
+   The storage key deliberately does NOT change with this release. The column
+   set is now identical to the pre-v90 one — select, po, style, color, qty,
+   fob, etd, revEtd, actions — so anybody who had dragged their columns before
+   v90 gets their own layout back, and only the people who resized during v90
+   fall back to the defaults. */
 export function loadWidths() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

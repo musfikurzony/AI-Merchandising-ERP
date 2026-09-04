@@ -81,9 +81,6 @@ body {
 .wb-table tr > .wb-frozen.wb-freeze-edge {
   box-shadow: 3px 0 6px -2px rgba(0,0,0,0.18); overflow: visible; white-space: nowrap; text-align: center;
 }
-/* Factory and Label hold names, not codes: proportional type reads better and
-   they clip with an ellipsis rather than widening the frozen block. */
-.wb-table .wb-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The two date columns never ellipsize -- they are sized for the longest
    selectable format. Qty and FOB are right-aligned, as figures should be. */
 .wb-table td.wb-frozen.mono { text-overflow: clip; }

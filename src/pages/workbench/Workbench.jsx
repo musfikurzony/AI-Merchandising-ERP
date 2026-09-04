@@ -202,8 +202,6 @@ function frozenCellContent(key, row, dateFormat, helpers) {
     case "po":      return `${row.order.po_prefix}${row.order.po_number}`;
     case "style":   return row.order.style;
     case "color":   return row.colorName;
-    case "factory": return row.order.factories?.name || "—";
-    case "label":   return row.order.labels?.name || "—";
     case "qty":     return fmtNum(row.colorQty);
     case "fob":     return "fob" in row.order ? fmtFob(row.order.fob) : "—";
     case "etd":     return fmtCompact(row.order.etd, dateFormat);
@@ -218,15 +216,13 @@ function frozenCellContent(key, row, dateFormat, helpers) {
   }
 }
 
-/* The tooltip is the full value for any column that clips, so a truncated
-   factory name is still readable without widening the column for everyone. */
+/* The tooltip is the full value for any column that clips, so a date that
+   does not fit is still readable without widening the column for everyone. */
 function frozenCellTitle(key, row, dateFormat) {
   switch (key) {
     case "po":      return `${row.order.po_prefix}${row.order.po_number}`;
     case "style":   return row.order.style || "";
     case "color":   return row.colorName || "";
-    case "factory": return row.order.factories?.name || "";
-    case "label":   return row.order.labels?.name || "";
     case "qty":     return fmtNum(row.colorQty);
     case "fob":     return "fob" in row.order ? fmtFob(row.order.fob) : "";
     case "etd":     return row.order.etd || "";
@@ -237,7 +233,6 @@ function frozenCellTitle(key, row, dateFormat) {
 
 const FROZEN_CELL_CLASS = {
   po: "mono strong", style: "mono", color: "mono",
-  factory: "wb-name", label: "wb-name",
   qty: "mono wb-num", fob: "mono wb-num", etd: "mono", revEtd: "mono",
 };
 
