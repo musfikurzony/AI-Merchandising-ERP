@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listMyOrders, submitCrdUpdate, getCrdHistory } from "../../lib/factoryApi.js";
 import { useSticky, useStickyScope } from "../../lib/viewState.js";
+import DraftNotice from "../../components/DraftNotice.jsx";
+import { useFormDraft, hasDraft, clearDraft } from "../../lib/formDraft.js";
 
 function CrdModal({ selectedOrders, onClose, onSubmitted }) {
   const [newCrd, setNewCrd] = useState("");

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient.js";
 import { clearAllViewState } from "./viewState.js";
+import { clearAllDrafts, setDraftOwner } from "./formDraft.js";
 
 /* Real session handling -- no mock users, no hardcoded roles. On sign-in,
    also fetches the profile row (role, must_change_password, etc.) since
@@ -35,33 +36,50 @@ export function useSession() {
     setProfile({ ...data, role_label: data.roles?.label });
   }
 
+  /* Which user the route tree was built for. Compared against the user on
+     every auth event, because the question that decides whether to unmount is
+     "is this a different person?" and nothing else. */
+  const loadedUserRef = useRef(null);
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
-      if (session) await loadProfile(session.user.id);
+      if (session) {
+        loadedUserRef.current = session.user.id;
+        setDraftOwner(session.user.id);
+        await loadProfile(session.user.id);
+      }
       setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       if (session) {
-        // TOKEN_REFRESHED fires automatically whenever the tab regains
-        // focus after being backgrounded -- a normal Supabase SDK
-        // behavior, not a genuine sign-in. Previously this set
-        // loading=true unconditionally, which unmounted the entire
-        // route tree (App.jsx renders a bare "Loading..." screen while
-        // loading is true) and remounted it once the profile refetch
-        // finished -- confirmed as the actual cause of "switch tabs,
-        // come back, land on Dashboard": the route tree was being torn
-        // down and rebuilt on every tab switch, not preserved. The
-        // profile still refreshes on every event either way (so a role
-        // change while away is still picked up), just without visibly
-        // resetting the page for the overwhelmingly common case where
-        // nothing actually changed.
-        if (event !== "TOKEN_REFRESHED") setLoading(true);
+        /* Setting loading=true unmounts the ENTIRE route tree — App.jsx
+           renders a bare "Loading..." while it is true — and remounting is
+           what throws away whatever the user had on screen.
+           
+           This used to exempt one event by name, TOKEN_REFRESHED, which the
+           SDK emits when a backgrounded tab regains focus. That fixed the
+           symptom it was written for and left the rest: supabase-js also
+           emits SIGNED_IN when it recovers a session on visibility change,
+           and INITIAL_SESSION on some paths, and any of those would tear the
+           page down on a simple tab switch.
+           
+           So the test is no longer "which event is this" but the question
+           that actually matters: IS THIS A DIFFERENT PERSON? Only a change of
+           user justifies rebuilding the app. The profile is still refreshed
+           on every event either way, so a role change while away is picked up
+           without the screen resetting. */
+        const sameUser = loadedUserRef.current === session.user.id;
+        loadedUserRef.current = session.user.id;
+        setDraftOwner(session.user.id);
+        if (!sameUser) setLoading(true);
         await loadProfile(session.user.id);
-        setLoading(false);
+        if (!sameUser) setLoading(false);
       } else {
+        loadedUserRef.current = null;
+        setDraftOwner(null);
         setProfile(null);
       }
     });
@@ -81,6 +99,10 @@ export function useSession() {
        PREFERENCE is deliberately left alone — it belongs to the browser, not
        to the session. */
     clearAllViewState();
+    /* Drafts hold real business data — a half-written user record, an
+       unfinished order edit. They must not survive the person who typed
+       them leaving the machine. */
+    clearAllDrafts();
     await supabase.auth.signOut();
   }
 

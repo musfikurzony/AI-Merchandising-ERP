@@ -1248,3 +1248,21 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
   font-size: 10.5px; font-weight: 600; cursor: pointer;
 }
 .rs-reset:hover { background: #E3EBF4; }
+
+/* --- unsaved draft restored (v94) ------------------------------------
+   Deliberately louder than the v93 "showing where you left off" line. That
+   one describes a filter; this one describes data that LOOKS saved and is
+   not, and the difference has to be visible at a glance. */
+.dn-note {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 7px 11px;
+  background: #FDF6E3; border: 1px solid #E7C77A; border-radius: 8px;
+  font-size: 11.5px; color: #6B5314;
+}
+.dn-icon { font-size: 12px; }
+.dn-discard {
+  margin-left: auto; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid #E7C77A; background: #fff; color: #6B5314;
+  font-size: 10.5px; font-weight: 600; cursor: pointer;
+}
+.dn-discard:hover { background: #F6E9C8; }

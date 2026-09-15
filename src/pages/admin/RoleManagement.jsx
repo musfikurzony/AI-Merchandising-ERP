@@ -4,6 +4,8 @@ import {
   listFinePermissions, listRolePermissions, upsertRolePermission,
   MODULE_KEYS, MODULE_ACTIONS,
 } from "../../lib/adminApi.js";
+import DraftNotice from "../../components/DraftNotice.jsx";
+import { useFormDraft } from "../../lib/formDraft.js";
 
 export default function RoleManagement() {
   const [roles, setRoles] = useState([]);
@@ -12,7 +14,7 @@ export default function RoleManagement() {
   const [finePerms, setFinePerms] = useState([]);
   const [rolePerms, setRolePerms] = useState([]);
   const [showClone, setShowClone] = useState(false);
-  const [cloneForm, setCloneForm] = useState({ newKey: "", newLabel: "" });
+  const [cloneForm, setCloneForm, cloneDraft] = useFormDraft("admin.role.clone", { newKey: "", newLabel: "" });
   const [error, setError] = useState(null);
 
   useEffect(() => {

@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 import { listUsers, createUser, updateUserProfile, resetPassword, forcePasswordChange, setUserActive, deleteUserPermanently, listRoles } from "../../lib/adminApi.js";
 import UserOverrides from "./UserOverrides.jsx";
 import UserHistory from "./UserHistory.jsx";
+import DraftNotice from "../../components/DraftNotice.jsx";
+import { useFormDraft, hasDraft, clearDraft } from "../../lib/formDraft.js";
+import { useSticky } from "../../lib/viewState.js";
 
 const ROLE_FILTER_GROUPS = [
   { label: "All", roles: null },
@@ -10,8 +13,20 @@ const ROLE_FILTER_GROUPS = [
   { label: "Shipping", roles: ["shipping", "commercial"] },
 ];
 
+/* The draft key. Keyed per record so editing two different people cannot
+   cross-contaminate, and so a half-written NEW user is kept separately from a
+   half-finished edit. Exported because the PARENT needs it too: a restored
+   draft is no use if the modal it belongs to never reopens. */
+export function userDraftKey(user) {
+  return user?.id ? `admin.user.${user.id}` : "admin.user.new";
+}
+
 function UserForm({ user, roles, onSave, onCancel }) {
-  const [form, setForm] = useState(user || {
+  /* This is the form the whole change exists for. The Factory Code field only
+     appears once a factory role is chosen, so the moment you need the code is
+     the moment you have to go and look it up — and before this, doing so threw
+     away everything already typed. */
+  const [form, setForm, draft] = useFormDraft(userDraftKey(user), user || {
     email: "", full_name: "", role: "merchandiser", employee_id: "", department: "",
     designation: "", mobile: "", linked_factory_code: "",
   });
@@ -20,6 +35,7 @@ function UserForm({ user, roles, onSave, onCancel }) {
     <div className="modal-backdrop">
       <div className="modal-box">
         <h3>{user ? `Edit ${user.full_name}` : "Add User"}</h3>
+        <DraftNotice restored={draft.restored} onDiscard={draft.discard} what={user ? "changes" : "user details"} />
         {!user && (
           <label className="field">Email
             <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
@@ -67,9 +83,20 @@ function UserForm({ user, roles, onSave, onCancel }) {
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [filter, setFilter] = useState(ROLE_FILTER_GROUPS[0]);
-  const [q, setQ] = useState("");
-  const [editing, setEditing] = useState(null); // null | {} (new) | user object
+  /* v93 gave every other screen sticky filters and skipped the admin pages.
+     Stored by LABEL rather than by the object itself: ROLE_FILTER_GROUPS
+     entries are compared by identity elsewhere, and a restored plain object
+     would look equal while failing every `===`. */
+  const [filterLabel, setFilterLabel] = useSticky("admin-users", "filter", ROLE_FILTER_GROUPS[0].label);
+  const filter = ROLE_FILTER_GROUPS.find(g => g.label === filterLabel) || ROLE_FILTER_GROUPS[0];
+  const setFilter = g => setFilterLabel(g.label);
+  const [q, setQ] = useSticky("admin-users", "q", "");
+  /* Reopen an unfinished Add User by itself. Restoring the fields is pointless
+     if the form they belong to is not on screen — the user would have to know
+     to press "Add User" again to discover their work was kept. Only the NEW
+     form self-opens: reopening an edit would need the user record fetched
+     first, and guessing which row to reopen is worse than not reopening. */
+  const [editing, setEditing] = useState(() => (hasDraft("admin.user.new") ? {} : null)); // null | {} (new) | user object
   const [overridesUser, setOverridesUser] = useState(null);
   const [historyUser, setHistoryUser] = useState(null);
   const [tempPasswordNotice, setTempPasswordNotice] = useState(null);
@@ -104,6 +131,13 @@ export default function UserManagement() {
         const result = await createUser({ ...form, employee_id: form.employee_id || null, linked_factory_code: form.linked_factory_code || null });
         setTempPasswordNotice({ name: form.full_name, password: result.temp_password });
       }
+      /* Cleared exactly HERE — after the write succeeded and before the
+         modal closes. Clearing on open or on cancel would lose work; not
+         clearing at all would make the draft reappear the next time this form
+         is opened, offering to re-create a user that already exists. The
+         catch below deliberately does not clear: a failed save is precisely
+         when the typing is most worth keeping. */
+      clearDraft(userDraftKey(form.id ? form : null));
       setEditing(null);
       await refresh();
     } catch (e) {

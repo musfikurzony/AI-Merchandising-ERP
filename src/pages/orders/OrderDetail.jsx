@@ -7,6 +7,8 @@ import {
   requestPoCancellation, getPoCancellationRequestForPo, approvePoCancellation, rejectPoCancellation, etdBufferAvailable } from "../../lib/ordersApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
 import { BUFFER_CHOICES, applyBuffer, bufferDays, describeBuffer, factoryVisibleEtd } from "../../lib/etdBuffer.js";
+import DraftNotice from "../../components/DraftNotice.jsx";
+import { useFormDraft, hasDraft, clearDraft } from "../../lib/formDraft.js";
 import { getColumnPrefs } from "../../lib/workbenchApi.js";
 import { hasModulePermission } from "../../lib/permissions.js";
 import { getShipmentSummaryForOrder, getShipmentLinesForOrder } from "../../lib/shipmentApi.js";
@@ -781,7 +783,12 @@ function CancellationModal({ order, onClose, onDone }) {
 
 function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved }) {
   const [options, setOptions] = useState({ productGroups: [], customers: [], divisions: [], businessUnits: [], merchandisers: [] });
-  const [form, setForm] = useState({
+  /* `revised_etd_reason` is EXCLUDED from the draft on purpose. It is written
+     to the audit trail as the justification for one specific date change, and
+     a reason restored next to a date the user has since altered is a record
+     that lies about why something happened. Retyping one sentence is a small
+     price for an audit trail that means what it says. */
+  const [form, setForm, draft] = useFormDraft(`order.edit.${order.id}`, {
     etd: order.etd || "", revised_etd: order.revised_etd || "", revised_etd_reason: "",
     etd_buffer_days: order.etd_buffer_days ?? 0,
     factory_code: order.factory_code || "", qty: order.qty ?? "",
@@ -792,7 +799,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
     customer_code: order.customers?.code || "", division_code: order.divisions?.code || "",
     business_unit_code: order.business_units?.code || "", primary_merchandiser_id: order.primary_merchandiser_id || "",
     fabric_ref: order.fabric_ref || "",
-  });
+  }, { exclude: ["revised_etd_reason"] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const showFob = "fob" in order;
@@ -835,6 +842,9 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
         fabric_ref: order.fabric_ref,
       };
       await editOrder(order.id, before, changes, revisedEtdChanged ? form.revised_etd_reason.trim() : null);
+      /* Only after the write succeeded. A failed save is exactly when the
+         typing is most worth keeping, so the catch below does not clear. */
+      clearDraft(`order.edit.${order.id}`);
       await onSaved();
     } catch (e) {
       setError(e.message);
@@ -847,6 +857,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
       <div className="modal-box" style={{ width: 620 }}>
         <div className="modal-title">Edit Order — {order.po_prefix}{order.po_number}</div>
         <p className="muted-sm" style={{ marginBottom: 14 }}>Changes are written to the Activity Log automatically, one line per changed field.</p>
+        <DraftNotice restored={draft.restored} onDiscard={draft.discard} what="changes" />
         {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label className="edit-field">ETD<input type="date" value={form.etd} onChange={e => set("etd", e.target.value)} /></label>
