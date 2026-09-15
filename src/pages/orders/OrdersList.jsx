@@ -231,9 +231,15 @@ export default function OrdersList() {
          to be read/copied on screen; the .xlsx is only written if the
          user asks for it there. Each sheet closes with its own totals
          row, the same bottom-line placement the report tables use. */
+      /* The keys of a totals object must be REAL COLUMN NAMES of that sheet.
+         This sheet's totals used to be keyed "Qty" and "Order Value" while
+         its columns are "Order Qty" and (no value column at all), so the
+         Total row rendered as a label with nothing beside it — every export
+         since it was written. Summing a column that does not exist produces
+         0 silently, which is why nothing ever complained. */
       const sum = (rows, key) => rows.reduce((s2, r) => s2 + (Number(r[key]) || 0), 0);
       setExcelSheets([
-        { name: "Order Summary", rows: summaryRows, totals: { "PO Prefix": "Total", "Qty": sum(summaryRows, "Qty"), "Order Value": Number(sum(summaryRows, "Order Value").toFixed(2)) } },
+        { name: "Order Summary", rows: summaryRows, totals: { "PO Prefix": "Total", "Order Qty": sum(summaryRows, "Order Qty") } },
         { name: "Color Details", rows: colorRows, totals: { "PO Prefix": "Total", "Ordered Qty": sum(colorRows, "Ordered Qty"), "Shipped Qty": sum(colorRows, "Shipped Qty"), "Balance Qty": sum(colorRows, "Balance Qty") } },
         { name: "Shipment Details", rows: shipmentRows, totals: { "PO Prefix": "Total", "Shipment Qty": sum(shipmentRows, "Shipment Qty"), "Shipment Value": Number(sum(shipmentRows, "Shipment Value").toFixed(2)) } },
       ]);

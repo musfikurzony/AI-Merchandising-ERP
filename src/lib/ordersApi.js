@@ -6,6 +6,7 @@ import { hasPermission } from "../lib/permissions.js";
    this: an undeclared identifier is only an error when the line actually
    runs. */
 import { fetchAllByIds } from "./supabaseFetch.js";
+import { byEffectiveEtd } from "./deliveryDate.js";
 
 /* Single shared query layer for orders -- per explicit instruction, "avoid
    duplicating order logic separately in every module." Dashboard, Orders,
@@ -52,14 +53,45 @@ export async function listOrders(filters = {}) {
   return data;
 }
 
+/* `etd_buffer_days` arrives with migration 39. Until that has run the column
+   does not exist, and asking PostgREST for a column that is not there fails
+   the WHOLE select — so Order Detail would go from "no buffer control" to
+   "will not open at all", which is a far worse bug than the missing feature.
+
+   So it is probed once and remembered. This is deliberately NOT a build flag
+   or a setting somebody has to switch: the app asks the database what it
+   actually has, gets it right either way, and starts working the moment the
+   migration runs without anyone redeploying or toggling anything. The buffer
+   is also kept OUT of BASE_SELECT for the same reason — the Orders list does
+   not show it, so it has no business depending on it. */
+let bufferColumnExists = null;     // null = not yet probed
+
+function isMissingColumn(error, column) {
+  const text = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+  return error?.code === "42703" || (text.includes(column) && /does not exist|could not find/i.test(text));
+}
+
 export async function getOrder(id) {
   const canFob = await canViewFob();
-  const { data, error } = await supabase.from("orders")
-    .select(`${canFob ? `${BASE_SELECT}, fob` : BASE_SELECT}, tna_remarks`)
-    .eq("id", id).single();
+  const base = `${canFob ? `${BASE_SELECT}, fob` : BASE_SELECT}, tna_remarks`;
+
+  if (bufferColumnExists !== false) {
+    const { data, error } = await supabase.from("orders")
+      .select(`${base}, etd_buffer_days`).eq("id", id).single();
+    if (!error) { bufferColumnExists = true; return data; }
+    if (!isMissingColumn(error, "etd_buffer_days")) throw error;
+    bufferColumnExists = false;
+  }
+
+  const { data, error } = await supabase.from("orders").select(base).eq("id", id).single();
   if (error) throw error;
   return data;
 }
+
+/* True only once a successful read has proved the column is there. The Edit
+   Order screen uses it to say whether the buffer is actually in force or
+   merely stored — see lib/etdBuffer.js. */
+export function etdBufferAvailable() { return bufferColumnExists === true; }
 
 export async function getOrderColorWays(orderId) {
   const { data, error } = await supabase.from("order_color_ways").select("*").eq("order_id", orderId).order("name");
@@ -300,7 +332,7 @@ export async function getMyOrders() {
   const combined = [];
   for (const o of primary.data) { if (!seen.has(o.id)) { seen.add(o.id); combined.push(o); } }
   for (const row of shared.data) { const o = row.orders; if (o && !seen.has(o.id) && !o.is_deleted) { seen.add(o.id); combined.push(o); } }
-  return combined.sort((a, b) => (a.etd || "").localeCompare(b.etd || ""));
+  return combined.sort(byEffectiveEtd);
 }
 
 /* Managing who else (besides the primary merchandiser) can see and act on

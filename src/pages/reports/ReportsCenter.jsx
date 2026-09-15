@@ -8,7 +8,7 @@ import {
 } from "../../lib/reportsApi.js";
 import {
   loadOrganization, resolvePeriod, defaultPeriod, activeFilterLabels,
-  DATE_BASIS_OPTIONS, reportFileName,
+  DATE_BASIS_OPTIONS, DEFAULT_DATE_BASIS, reportFileName,
 } from "../../lib/reportContext.js";
 import ReportHeader from "../../components/ReportHeader.jsx";
 import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
@@ -56,7 +56,7 @@ const REPORT_CATALOG = [
 ];
 
 const EMPTY_FILTERS = {
-  dateBasis: "etd", factoryCode: "", merchandiserId: "", customerCode: "",
+  dateBasis: "delivery", factoryCode: "", merchandiserId: "", customerCode: "",
   productGroupCode: "", labelCode: "", divisionCode: "", businessUnitCode: "",
   season: "", status: "", style: "", po: "",
 };
@@ -140,7 +140,7 @@ export default function ReportsCenter() {
   );
   const seasons = useMemo(() => data ? seasonsIn(data.orders) : [], [data]);
   const periodLabel = applied?.periodLabel || "";
-  const dateBasisLabel = (DATE_BASIS_OPTIONS.find(d => d[0] === (applied?.dateBasis || "etd")) || [])[1];
+  const dateBasisLabel = (DATE_BASIS_OPTIONS.find(d => d[0] === (applied?.dateBasis || (DEFAULT_DATE_BASIS))) || [])[1];
   const filterLabels = applied ? activeFilterLabels(applied, options, grouped?.dimensionLabel) : [];
   const maxMetric = grouped?.rows.length ? Math.max(...grouped.rows.map(r => r[metric] || 0)) : 0;
 

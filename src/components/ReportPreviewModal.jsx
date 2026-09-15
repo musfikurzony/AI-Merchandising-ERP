@@ -22,7 +22,7 @@ export default function ReportPreviewModal({ descriptor, onClose }) {
   const {
     companyName = "PERRY ELLIS INTERNATIONAL — BANGLADESH",
     reportName, periodLabel, filterLabels = [], kpis = [],
-    columns = [], rows = [], totalsRow, fileName,
+    columns = [], rows = [], totalsRow, footRows, fileName,
   } = descriptor;
 
   const generatedAt = new Date().toLocaleString("en-US", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -73,15 +73,21 @@ export default function ReportPreviewModal({ descriptor, onClose }) {
                 ))}
                 {rows.length === 0 && <tr><td colSpan={columns.length || 1} style={{ textAlign: "center", padding: 22, color: "#9AA0AA" }}>No rows for the current filters.</td></tr>}
               </tbody>
-              {totalsRow && (
+              {/* One closing line or several. The Annual Sales Report needs
+                  four — total, cumulative, last year, variance — and a report
+                  whose whole point is the cumulative line cannot say it in a
+                  single totals row. `totalsRow` behaves exactly as before. */}
+              {(footRows?.length || totalsRow) && (
                 <tfoot>
-                  <tr>
-                    {columns.map(c => (
-                      <td key={c.key} style={{ textAlign: c.align === "right" ? "right" : c.align === "center" ? "center" : "left", fontVariantNumeric: "tabular-nums" }}>
-                        {totalsRow[c.key] ?? ""}
-                      </td>
-                    ))}
-                  </tr>
+                  {(footRows?.length ? footRows : [totalsRow]).map((fr, fi) => (
+                    <tr key={fi}>
+                      {columns.map(c => (
+                        <td key={c.key} style={{ textAlign: c.align === "right" ? "right" : c.align === "center" ? "center" : "left", fontVariantNumeric: "tabular-nums" }}>
+                          {fr[c.key] ?? ""}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tfoot>
               )}
             </table>

@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient.js";
 import { canViewFob, getOrderColorWaysForOrders } from "./ordersApi.js";
 import { fetchAllPaged, fetchAllByIds, countRows, countByIds, reconcile, integrityOf } from "./supabaseFetch.js";
+import { effectiveEtd, etdInRange } from "./deliveryDate.js";
 
 /* Reports Center data layer, Phase 1.
 
@@ -45,7 +46,16 @@ const REPORT_ORDER_SELECT = `
 const DATE_BASIS_COLUMN = { po_issue: "order_rcv_date", etd: "etd", revised_etd: "revised_etd" };
 // actual_etd and crd are not direct order columns -- filtered in JS after
 // the shipment/CRD data is loaded, since they live in joined tables.
-const DATE_BASIS_NEEDS_POSTFILTER = ["actual_etd", "crd"];
+//
+// `delivery` joins them: coalesce(revised_etd, etd), the latest committed
+// delivery date and the DEFAULT basis for every report. It post-filters for a
+// different reason from the other two -- the value is not a column but an
+// expression over two of them, and PostgREST cannot be given a coalesce()
+// predicate without either a generated column (a migration) or a repeated
+// `or=` parameter (which PostgREST does not combine reliably). Post-filtering
+// costs nothing here because the rows are already in memory, and it reuses a
+// mechanism this file already had rather than inventing a second one.
+const DATE_BASIS_NEEDS_POSTFILTER = ["actual_etd", "crd", "delivery"];
 
 /* The filter predicate lives in ONE function, applied to both the data
    query and the count query. If they were written twice they could drift,
@@ -66,7 +76,7 @@ function applyOrderFilters(query, filters) {
   if (filters.status) query = query.eq("status", filters.status);
   else if (!filters.includeCancelled) query = query.neq("status", "cancelled");
 
-  const basis = filters.dateBasis || "etd";
+  const basis = filters.dateBasis || "delivery";
   if (!DATE_BASIS_NEEDS_POSTFILTER.includes(basis)) {
     const col = DATE_BASIS_COLUMN[basis] || "etd";
     if (filters.dateFrom) query = query.gte(col, filters.dateFrom);
@@ -161,7 +171,7 @@ export async function buildReportDataset(filters = {}) {
 
   // Post-filter for date bases that live in joined data, not a direct
   // order column.
-  const basis = filters.dateBasis || "etd";
+  const basis = filters.dateBasis || "delivery";
   if (DATE_BASIS_NEEDS_POSTFILTER.includes(basis) && (filters.dateFrom || filters.dateTo)) {
     const relevantOrderIds = new Set();
     if (basis === "actual_etd") {
@@ -173,6 +183,8 @@ export async function buildReportDataset(filters = {}) {
       for (const [orderId, d] of crdByOrder) {
         if (d && (!filters.dateFrom || d >= filters.dateFrom) && (!filters.dateTo || d <= filters.dateTo)) relevantOrderIds.add(orderId);
       }
+    } else if (basis === "delivery") {
+      for (const o of orders) if (etdInRange(o, filters.dateFrom, filters.dateTo)) relevantOrderIds.add(o.id);
     }
     orders = orders.filter(o => relevantOrderIds.has(o.id));
   }
@@ -246,6 +258,7 @@ export function computeOnTimeShipment(orders, shipmentSummaryByOrder) {
   const missRows = [];
   for (const o of orders) {
     const summary = shipmentSummaryByOrder.get(o.id);
+    // ORIGINAL ETD: on purpose — performance is measured against the commitment, not the revision.
     if (!summary?.latestActualEtd || !o.etd) continue;
     if (summary.latestActualEtd <= o.etd) hit++;
     else { miss++; missRows.push(o); }
@@ -321,6 +334,7 @@ export function computeShortShipment(orders, shipmentSummaryByOrder) {
 }
 
 export function computeLeadTime(orders) {
+  // ORIGINAL ETD: on purpose — performance is measured against the commitment, not the revision.
   const withDates = orders.filter(o => o.order_rcv_date && o.etd);
   const days = withDates.map(o => Math.round((new Date(o.etd) - new Date(o.order_rcv_date)) / 86400000));
   const avg = days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null;
@@ -771,8 +785,11 @@ export function monthlyShipmentSeries(orders, shipmentLines, shipmentSummaryByOr
   }
 
   for (const o of orders) {
-    if (o.status === "cancelled" || !o.etd) continue;
-    const m = ensure(keyOf(o.etd));
+    // The month an order counts in is its LATEST committed delivery date, so
+    // a PO revised out of November stops inflating November.
+    const due = effectiveEtd(o);
+    if (o.status === "cancelled" || !due) continue;
+    const m = ensure(keyOf(due));
     const met = orderMetrics(o, shipmentSummaryByOrder);
     m.orderedQty += met.orderedQty;
     m.orderValue += met.orderValue || 0;
@@ -811,7 +828,7 @@ export function attentionList(orders, shipmentSummaryByOrder, today = new Date()
   for (const o of orders) {
     if (o.status === "cancelled" || o.status === "shipped") continue;
     const m = orderMetrics(o, shipmentSummaryByOrder);
-    const etd = o.revised_etd || o.etd;
+    const etd = effectiveEtd(o);
     if (!etd) {
       out.push({ order: o, severity: "warn", reason: "No ETD set", daysPastEtd: null, ...m });
       continue;

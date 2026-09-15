@@ -4,6 +4,7 @@ import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import { stamp } from "../../lib/exportPreview.js";
 import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, getFollowUpColumnPrefs, saveFollowUpColumnPrefs } from "../../lib/workbenchApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { etdInRange } from "../../lib/deliveryDate.js";
 import { completedLate, lateByDays } from "../../lib/milestoneReminder.js";
 
 /* Real port of v13's actual FollowupReport (confirmed against the real
@@ -335,8 +336,7 @@ export default function FollowUpReport() {
     (filters.merchandiser === "all" || o.profiles?.full_name === filters.merchandiser) &&
     (filters.productGroup === "all" || o.product_groups?.name === filters.productGroup) &&
     (filters.customerCode === "all" || o.customers?.name === filters.customerCode) &&
-    (!filters.etdFrom || !o.etd || o.etd >= filters.etdFrom) &&
-    (!filters.etdTo || !o.etd || o.etd <= filters.etdTo)
+    etdInRange(o, filters.etdFrom, filters.etdTo)
   );
 
   const rows = useMemo(() => buildColorRows(filteredOrders, colorWaysByOrder), [filteredOrders, colorWaysByOrder]);

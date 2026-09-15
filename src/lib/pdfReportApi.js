@@ -21,6 +21,10 @@ export function generateCorporatePDF({
   columns, // [{ header, key, align: "left"|"right"|"center" }]
   rows, // plain objects keyed by column.key
   totalsRow, // optional -- one object keyed like rows, rendered as the table's LAST line
+  footRows,  // optional -- SEVERAL closing lines (total, cumulative, last year,
+             // variance). The Annual Sales Report needs four or five, and a
+             // report whose point is the cumulative line cannot express it in
+             // one totals row. `totalsRow` still works exactly as before.
   fileName,
 }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
@@ -80,8 +84,10 @@ export function generateCorporatePDF({
        a KPI box above the chart -- so it prints as the closing line of the
        table and, on a multi-page report, repeats correctly at the bottom
        rather than being stranded on page 1. */
-    foot: totalsRow ? [columns.map(c => totalsRow[c.key] ?? "")] : undefined,
-    showFoot: totalsRow ? "lastPage" : "never",
+    foot: footRows?.length
+      ? footRows.map(fr => columns.map(c => fr[c.key] ?? ""))
+      : (totalsRow ? [columns.map(c => totalsRow[c.key] ?? "")] : undefined),
+    showFoot: (footRows?.length || totalsRow) ? "lastPage" : "never",
     footStyles: { fillColor: [247, 244, 238], textColor: [27, 36, 52], fontStyle: "bold", lineWidth: { top: 1 }, lineColor: [26, 34, 51] },
     styles: { font: "helvetica", fontSize: 8, cellPadding: 4, textColor: [31, 41, 55] },
     headStyles: { fillColor: [26, 34, 51], textColor: [255, 255, 255], fontStyle: "bold" },

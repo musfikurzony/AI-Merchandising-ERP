@@ -16,6 +16,7 @@ const NAV_GROUPS = [
       { path: "/executive-dashboard", label: "Executive Dashboard" },
       { path: "/kpi-dashboard", label: "KPI Dashboard" },
       { path: "/reports/on-time", label: "On-time Performance" },
+      { path: "/reports/annual-sales", label: "Annual Sales Report" },
       { path: "/reports", label: "Reports Center", exact: true },
     ],
   },

@@ -1,4 +1,5 @@
 import { orderMetrics } from "./reportsApi.js";
+import { effectiveEtd } from "./deliveryDate.js";
 
 /* ==========================================================================
    The notification engine — one typed row, one severity scale, one place
@@ -101,9 +102,13 @@ export function buildOrderFacts(ds, order, today) {
     ? (fabric.plan_date < fabricRuleTarget ? fabric.plan_date : fabricRuleTarget)
     : (fabric?.plan_date || fabricRuleTarget);
 
+  /* ORIGINAL ETD: on purpose. `etd` is kept as the original commitment
+     because the etd_revised rule below measures the slip against it. The
+     latest committed date comes from the shared rule, not a second copy
+     of it written here. */
   const etd = order.etd || null;
   const revisedEtd = order.revised_etd || null;
-  const effectiveEtd = revisedEtd || etd;
+  const dueDate = effectiveEtd(order);
   const crdRow = ds.crdLatestRow?.get(order.id) || null;
   const crdHistory = ds.crdHistoryByOrder?.get(order.id) || [];
 
@@ -135,13 +140,13 @@ export function buildOrderFacts(ds, order, today) {
 
     exFactoryActual: exFactory?.actual_date || null,
 
-    etd, revisedEtd, effectiveEtd,
+    etd, revisedEtd, effectiveEtd: dueDate,
     crd: crdRow?.new_crd || null,
     previousCrd: crdRow?.previous_crd || null,
     crdChangeCount: crdHistory.length,
 
     daysSinceReceipt: order.order_rcv_date ? daysBetween(today, order.order_rcv_date) : null,
-    daysToEtd: effectiveEtd ? daysBetween(effectiveEtd, today) : null,
+    daysToEtd: dueDate ? daysBetween(dueDate, today) : null,
     isOpen: order.status !== "shipped" && order.status !== "cancelled",
   };
 }

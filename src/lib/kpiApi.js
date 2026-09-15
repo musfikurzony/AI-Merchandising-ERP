@@ -157,6 +157,7 @@ export async function getKpiData(filters = {}) {
   let shipHit = 0, shipMiss = 0;
   for (const o of shippedOrders) {
     const actual = actualEtd.get(o.id);
+    // ORIGINAL ETD: on purpose — performance is measured against the commitment, not the revision.
     if (!actual || !o.etd) continue;
     if (actual <= o.etd) shipHit++; else shipMiss++;
   }
@@ -243,6 +244,7 @@ export function rollupByDimension(kpiData, dimensionFn, labelFn) {
     for (const o of g.shippedOrders) {
       const shipment = kpiData.shipmentData.get(o.id);
       const actual = shipment?.actual_etd;
+      // ORIGINAL ETD: on purpose — performance is measured against the commitment, not the revision.
       if (actual && o.etd) { shipDenom++; if (actual <= o.etd) shipHit++; }
       if (shipment?.shipped_qty != null && o.qty) shortShipPcts.push(((o.qty - shipment.shipped_qty) / o.qty) * 100);
     }

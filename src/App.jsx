@@ -23,6 +23,7 @@ import CrdChangeMonitoring from "./pages/crd-monitoring/CrdChangeMonitoring.jsx"
 import KpiDashboard from "./pages/kpi-dashboard/KpiDashboard.jsx";
 import ReportsCenter from "./pages/reports/ReportsCenter.jsx";
 import OnTimePerformance from "./pages/reports/OnTimePerformance.jsx";
+import SalesMatrix from "./pages/reports/SalesMatrix.jsx";
 import ShippingLanding from "./pages/ShippingLanding.jsx";
 import ShippingReports from "./pages/ShippingReports.jsx";
 import RequireModule from "./components/RequireModule.jsx";
@@ -185,6 +186,11 @@ export default function App() {
               the same 'reports' module permission -- no new permission
               concept invented. */}
           <Route path="/reports/on-time" element={<RequireModule module="reports" fallback={landing}><OnTimePerformance /></RequireModule>} />
+          {/* The Annual Sales Report is its own route for the same reason
+              On-Time Performance is: it needs a period control the shared
+              one cannot express (two fiscal years at once). Same 'reports'
+              permission -- a new screen is not a new thing to be granted. */}
+          <Route path="/reports/annual-sales" element={<RequireModule module="reports" fallback={landing}><SalesMatrix /></RequireModule>} />
           {/* The AI Assistant guards itself the same way Backup & Export does: it
               checks the 'ai_assistant' module key and falls back to any user who
               can see Orders, rather than RequireModule bouncing everyone while

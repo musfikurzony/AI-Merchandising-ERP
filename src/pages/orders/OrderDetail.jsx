@@ -4,9 +4,9 @@ import {
   getOrder, getOrderColorWays, getOrderSamples, getOrderCrdHistory,
   assignFactory, getAuditLog, getMilestoneTypesFull, getOrderMilestones, saveMilestoneField, getFilterOptions, editOrder, addMasterDataValue,
   getOrderSharedUsers, shareOrderWithUser, revokeOrderShare,
-  requestPoCancellation, getPoCancellationRequestForPo, approvePoCancellation, rejectPoCancellation,
-} from "../../lib/ordersApi.js";
+  requestPoCancellation, getPoCancellationRequestForPo, approvePoCancellation, rejectPoCancellation, etdBufferAvailable } from "../../lib/ordersApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { BUFFER_CHOICES, applyBuffer, bufferDays, describeBuffer, factoryVisibleEtd } from "../../lib/etdBuffer.js";
 import { getColumnPrefs } from "../../lib/workbenchApi.js";
 import { hasModulePermission } from "../../lib/permissions.js";
 import { getShipmentSummaryForOrder, getShipmentLinesForOrder } from "../../lib/shipmentApi.js";
@@ -174,7 +174,7 @@ export default function OrderDetail() {
       {tab === "activity" && <ActivityTab auditLog={auditLog} />}
 
       {showSheet && <WorkingSheet order={order} milestones={milestones} milestoneTypes={milestoneTypes} dateFormat={dateFormat} onClose={() => setShowSheet(false)} />}
-      {showEdit && <EditOrderModal order={order} factories={factories} labels={labels} onClose={() => setShowEdit(false)} onSaved={async () => { setShowEdit(false); await refresh(); }} />}
+      {showEdit && <EditOrderModal order={order} factories={factories} labels={labels} dateFormat={dateFormat} onClose={() => setShowEdit(false)} onSaved={async () => { setShowEdit(false); await refresh(); }} />}
       {showCancel && <CancellationModal order={order} onClose={() => setShowCancel(false)} onDone={async () => { setShowCancel(false); await refresh(); }} />}
     </div>
   );
@@ -272,6 +272,12 @@ function OverviewTab({ order, colorWays, milestones, dateFormat }) {
     ["Customer", order.customers?.name || "—"], ["Season", order.season || "—"],
     ["Order Rcv Date", fmtCompact(order.order_rcv_date, dateFormat)], ["ETD", fmtCompact(order.etd, dateFormat)],
     ["Rev ETD", fmtCompact(order.revised_etd, dateFormat)],
+    /* Shown only when a buffer is actually set. An "ETD buffer: none" line on
+       every order would be noise on the overwhelming majority of them, and
+       the one place it must be visible is the order that has one. */
+    ...(bufferDays(order) > 0
+      ? [["Factory ETD buffer", `${bufferDays(order)} days earlier — factory sees ${fmtCompact(factoryVisibleEtd(order), dateFormat)}`]]
+      : []),
     ["Merchandising Lead Time", leadTime != null ? `${leadTime} days (Order Rcv → ETD)` : "—"],
     ["Merchandiser", order.profiles?.full_name || "—"], ["Factory", order.factories?.name || "Not yet assigned"],
     ["Fabric Ref", order.fabric_ref || "—"],
@@ -773,10 +779,11 @@ function CancellationModal({ order, onClose, onDone }) {
   );
 }
 
-function EditOrderModal({ order, factories, labels, onClose, onSaved }) {
+function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved }) {
   const [options, setOptions] = useState({ productGroups: [], customers: [], divisions: [], businessUnits: [], merchandisers: [] });
   const [form, setForm] = useState({
     etd: order.etd || "", revised_etd: order.revised_etd || "", revised_etd_reason: "",
+    etd_buffer_days: order.etd_buffer_days ?? 0,
     factory_code: order.factory_code || "", qty: order.qty ?? "",
     fob: "fob" in order ? (order.fob ?? "") : "",
     status: order.status || "unassigned",
@@ -790,6 +797,8 @@ function EditOrderModal({ order, factories, labels, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const showFob = "fob" in order;
   const revisedEtdChanged = form.revised_etd !== (order.revised_etd || "");
+  /* Proved by an actual successful read, not assumed from a version number. */
+  const bufferReady = etdBufferAvailable();
 
   async function refreshOptions() { setOptions(await getFilterOptions()); }
   useEffect(() => { refreshOptions(); }, []);
@@ -814,8 +823,12 @@ function EditOrderModal({ order, factories, labels, onClose, onSaved }) {
         fabric_ref: form.fabric_ref || null,
       };
       if (showFob) changes.fob = form.fob === "" ? null : Number(form.fob);
+      /* Sending a column the database does not have fails the entire UPDATE,
+         so the buffer is only written once a read has proved the column is
+         there. Edit Order keeps working exactly as before until then. */
+      if (bufferReady) changes.etd_buffer_days = Number(form.etd_buffer_days) || 0;
       const before = {
-        etd: order.etd, revised_etd: order.revised_etd, factory_code: order.factory_code, qty: order.qty, fob: order.fob,
+        etd: order.etd, revised_etd: order.revised_etd, etd_buffer_days: order.etd_buffer_days ?? 0, factory_code: order.factory_code, qty: order.qty, fob: order.fob,
         status: order.status, product_group_code: order.product_groups?.code, label_code: order.labels?.code, season: order.season,
         customer_code: order.customers?.code, division_code: order.divisions?.code,
         business_unit_code: order.business_units?.code, primary_merchandiser_id: order.primary_merchandiser_id,
@@ -843,6 +856,38 @@ function EditOrderModal({ order, factories, labels, onClose, onSaved }) {
               directly), but matches the same "reason required" pattern v13
               uses for Re-source Order. Added as a reasonable extension, not
               claimed as something already in the prototype. */}
+          {/* The buffer sits beside the two dates because that is the only
+              place it means anything, and it shows its own consequence: a
+              number of days is abstract, "the factory will see 05 Nov" is
+              not. The preview is computed from the form's live values, not
+              the saved order, so it moves as the dates are typed. */}
+          {bufferReady ? (
+            <>
+              <label className="edit-field">
+                Factory ETD buffer
+                <select value={form.etd_buffer_days} onChange={e => set("etd_buffer_days", Number(e.target.value))}>
+                  {BUFFER_CHOICES.map(c => <option key={c.days} value={c.days}>{c.label}</option>)}
+                </select>
+              </label>
+              <div className="edit-field eb-preview">
+                <span className="eb-lbl">Factory portal will see</span>
+                <span className={"eb-date" + (Number(form.etd_buffer_days) > 0 ? " on" : "")}>
+                  {fmtCompact(applyBuffer(form.revised_etd || form.etd, form.etd_buffer_days), dateFormat) || "—"}
+                </span>
+                <span className="eb-note">
+                  {Number(form.etd_buffer_days) > 0
+                    ? `real date ${fmtCompact(form.revised_etd || form.etd, dateFormat) || "—"} — internal only`
+                    : "the real delivery date"}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="edit-field eb-preview off" style={{ gridColumn: "1 / -1" }}>
+              <span className="eb-lbl">Factory ETD buffer</span>
+              <span className="eb-note">Not available yet — migration 39 has not been run on this database.</span>
+            </div>
+          )}
+
           {revisedEtdChanged && (
             <label className="edit-field" style={{ gridColumn: "1 / -1" }}>
               Reason for Revised ETD change <span style={{ color: "#B91C1C" }}>*</span>

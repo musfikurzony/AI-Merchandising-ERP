@@ -7,6 +7,7 @@ import {
   computeBusinessSummary, computeOnTimeShipment, computeShortShipment,
   computeOnTimeBands, orderMetrics, getFiscalYear,
 } from "./reportsApi.js";
+import { effectiveEtd } from "./deliveryDate.js";
 
 /* ==========================================================================
    The Dashboard's composition layer.
@@ -307,7 +308,7 @@ export function distributionBy(ds, keyFn, labelFn, limit = 6) {
 export function otdTrend(ds, { months = 6 } = {}) {
   const buckets = new Map();
   for (const o of ds.orders) {
-    const basis = o.etd;
+    const basis = effectiveEtd(o);   // bucket by latest delivery date
     if (!basis) continue;
     const key = String(basis).slice(0, 7);
     if (!buckets.has(key)) buckets.set(key, []);
@@ -341,7 +342,7 @@ export function deliveryBands(ds) {
 export function fiscalYearsIn(ds) {
   const years = new Set();
   for (const o of ds.orders) {
-    const fy = getFiscalYear(o.etd);
+    const fy = getFiscalYear(effectiveEtd(o));
     if (fy) years.add(fy);
   }
   return [...years].sort();

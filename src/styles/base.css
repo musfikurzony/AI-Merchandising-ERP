@@ -303,6 +303,56 @@ body { background: var(--pei-page); color: var(--pei-ink); }
 .pv-sheet th { position: sticky; top: 0; background: #F7F4EE; border-bottom: 1px solid var(--pei-border); padding: 8px 10px; text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-muted); white-space: nowrap; z-index: 1; }
 .pv-sheet td { padding: 7px 10px; border-bottom: 1px solid var(--pei-border-soft); white-space: nowrap; }
 .pv-sheet td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- column filters on the export preview (v92) ------------------------
+   The header cell becomes a flex row so the caret sits beside the label
+   instead of wrapping it onto a second line and doubling the header
+   height. `th.num` reverses the order so the caret stays on the outside
+   edge of a right-aligned column. */
+.cf-th { display: flex; align-items: center; gap: 6px; }
+.pv-sheet th.num .cf-th { flex-direction: row-reverse; }
+.cf-th-text { flex: 1 1 auto; }
+.cf-btn {
+  flex: 0 0 auto; width: 16px; height: 16px; line-height: 14px; padding: 0;
+  border: 1px solid transparent; border-radius: 4px; background: transparent;
+  color: var(--pei-muted); font-size: 10px; cursor: pointer; opacity: 0;
+  transition: opacity .12s ease;
+}
+/* Hidden until the column is hovered — the PLM behaviour — but ALWAYS shown
+   once the column is filtered, because an invisible control is the only way
+   to leave someone stuck with a filter they cannot find to clear. */
+.pv-sheet th:hover .cf-btn, .cf-btn:focus-visible { opacity: 1; }
+.cf-btn.on { opacity: 1; background: var(--pei-navy); border-color: var(--pei-navy); color: #fff; }
+.pv-sheet th.cf-on { background: #EEF2F7; color: var(--pei-navy); }
+
+.cf-panel {
+  position: fixed; z-index: 4000; width: 268px; display: flex; flex-direction: column;
+  background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .18); overflow: hidden;
+}
+.cf-head { display: flex; align-items: baseline; gap: 8px; padding: 9px 11px 6px; border-bottom: 1px solid var(--pei-border-soft); }
+.cf-col { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-ink-2); }
+.cf-count { margin-left: auto; font-size: 10.5px; color: var(--pei-muted); }
+.cf-search { margin: 8px 10px 6px; padding: 5px 8px; font-size: 12px; border: 1px solid var(--pei-border); border-radius: 6px; }
+.cf-all { display: flex; align-items: center; gap: 7px; padding: 5px 11px 7px; font-size: 11.5px; font-weight: 600; color: var(--pei-ink-2); border-bottom: 1px solid var(--pei-border-soft); cursor: pointer; }
+.cf-list { overflow: auto; flex: 1 1 auto; min-height: 60px; padding: 4px 0; }
+.cf-item { display: flex; align-items: center; gap: 7px; padding: 3px 11px; font-size: 12px; cursor: pointer; }
+.cf-item:hover { background: var(--pei-surface-2); }
+.cf-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-label.blank { color: var(--pei-muted); font-style: italic; }
+.cf-n { flex: 0 0 auto; font-size: 10.5px; color: var(--pei-muted); font-variant-numeric: tabular-nums; }
+.cf-empty { padding: 10px 11px; font-size: 11.5px; color: var(--pei-muted); }
+.cf-foot { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-top: 1px solid var(--pei-border-soft); background: var(--pei-surface-2); }
+
+/* The "you are looking at a subset" bar. Deliberately loud: a filtered
+   export that reads as an unfiltered one is how a wrong number reaches a
+   customer. */
+.cf-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; padding: 7px 11px; border: 1px solid #E7C77A; background: #FDF6E3; border-radius: 8px; font-size: 11.5px; color: #6B5314; }
+.cf-bar-ttl { font-weight: 700; text-transform: uppercase; letter-spacing: .4px; font-size: 10px; }
+.cf-bar-txt { color: #6B5314; }
+.cf-chip { padding: 2px 8px; border-radius: 999px; border: 1px solid #E7C77A; background: #fff; font-size: 10.5px; color: #6B5314; cursor: pointer; }
+.cf-chip:hover { background: #F6E9C8; }
+.pv-tab.filtered::after { content: "▾"; margin-left: 5px; font-size: 9px; opacity: .8; }
 .pv-note { font-size: 11.5px; color: var(--pei-muted); margin: 10px 2px 0; }
 
 /* The PDF preview page — deliberately sized to the same A4 landscape
@@ -1107,3 +1157,77 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
    once the app header, the summary bar, one filter row, the legend and the
    pager are accounted for. */
 .wb-card .tna-scroll { max-height: max(460px, calc(100vh - 268px)); }
+
+/* ======================================================================
+   Annual Sales Report — the fiscal-year matrix (v92)
+   ======================================================================
+   A twelve-month matrix is wide by nature, and the two things that make a
+   wide table unreadable are losing the row's name when you scroll right and
+   losing the closing block when you scroll down. Both are pinned: the
+   dimension column is sticky left, the whole <tfoot> is sticky bottom.
+   Everything else is ordinary. */
+.sm-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 12px 0; padding: 12px 14px; background: var(--pei-surface); border: 1px solid var(--pei-border); border-radius: 10px; }
+.sm-group { display: flex; align-items: center; gap: 8px; }
+.sm-group > label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-muted); }
+.sm-group select { padding: 5px 8px; font-size: 12.5px; border: 1px solid var(--pei-border); border-radius: 6px; background: var(--pei-surface); }
+.sm-hint { font-size: 11px; color: var(--pei-muted); }
+.sm-seg { display: inline-flex; border: 1px solid var(--pei-border); border-radius: 7px; overflow: hidden; }
+.sm-seg button { padding: 5px 11px; font-size: 12px; border: 0; background: var(--pei-surface); color: var(--pei-ink-2); cursor: pointer; border-right: 1px solid var(--pei-border); }
+.sm-seg button:last-child { border-right: 0; }
+.sm-seg button.on { background: var(--pei-navy); color: #fff; font-weight: 600; }
+.sm-seg button:disabled { opacity: .4; cursor: not-allowed; }
+.sm-note { margin: 8px 0; padding: 7px 11px; font-size: 11.5px; color: #6B5314; background: #FDF6E3; border: 1px solid #E7C77A; border-radius: 8px; }
+
+/* --sm-fh is REDECLARED from JS with the measured footer row height (see
+   SalesMatrix.jsx). It is declared here too, with a sane default, so the
+   stylesheet stands on its own: a custom property used but never declared
+   resolves to nothing, which is exactly how five CSS rules ended up painting
+   transparent in v89. */
+.sm-scroll { --sm-fh: 28px; overflow: auto; max-height: 68vh; border: 1px solid var(--pei-border); border-radius: 10px; background: var(--pei-surface); }
+.sm-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
+.sm-table th, .sm-table td { padding: 6px 10px; white-space: nowrap; border-bottom: 1px solid var(--pei-border-soft); }
+.sm-table thead th { position: sticky; top: 0; z-index: 3; background: #F7F4EE; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-muted); text-align: right; border-bottom: 1px solid var(--pei-border); }
+.sm-table thead tr.sm-sub th { top: 27px; font-size: 9.5px; }
+.sm-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sm-table .money { color: var(--pei-ink-2); }
+
+/* The row's own name, pinned. A z-index above the body rows but below the
+   header, so scrolling in either direction keeps the right thing on top —
+   the same layering the Workbench's frozen block uses. */
+.sm-table .sm-dim { position: sticky; left: 0; z-index: 2; background: var(--pei-surface); text-align: left; font-weight: 600; box-shadow: 2px 0 4px -2px rgba(0,0,0,.14); min-width: 190px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.sm-table thead .sm-dim { z-index: 4; background: #F7F4EE; }
+.sm-table tbody tr:nth-child(even) td { background: var(--pei-surface-2); }
+.sm-table tbody tr:nth-child(even) .sm-dim { background: var(--pei-surface-2); }
+.sm-table tbody tr:hover td { background: #EEF2F7; }
+.sm-table tbody tr:hover .sm-dim { background: #EEF2F7; }
+.sm-total-col { background: #FBF9F4; font-weight: 600; }
+
+/* The closing block. It is the reason the report exists, so it stays on
+   screen while the body scrolls under it.
+
+   Five stacked sticky rows need exact offsets, and a hardcoded row height is
+   a guess that breaks the moment the font, the zoom or a long label changes
+   — the rows then overlap and the cumulative line disappears under the
+   variance line. So the height is MEASURED from the rendered footer and
+   published as --sm-fh; the offsets are multiples of it. The browser test
+   asserts the five rows do not overlap, which is the thing that actually
+   matters. */
+.sm-table tfoot td { position: sticky; z-index: 3; border-top: 1px solid var(--pei-border); }
+.sm-table tfoot tr.sm-f0 td { bottom: calc(var(--sm-fh, 28px) * 4); background: #F1EDE4; font-weight: 700; border-top: 2px solid var(--pei-navy); }
+.sm-table tfoot tr.sm-f1 td { bottom: calc(var(--sm-fh, 28px) * 3); background: #F7F4EE; font-weight: 600; }
+.sm-table tfoot tr.sm-f2 td { bottom: calc(var(--sm-fh, 28px) * 2); background: #FAFAFA; color: var(--pei-muted); }
+.sm-table tfoot tr.sm-f3 td { bottom: calc(var(--sm-fh, 28px) * 1); background: #FAFAFA; color: var(--pei-muted); }
+.sm-table tfoot tr.sm-f4 td { bottom: 0; background: var(--pei-surface); font-weight: 600; }
+.sm-table tfoot .sm-dim { left: 0; z-index: 4; }
+.sm-up { color: #1F7A5C; }
+.sm-down { color: #B4342B; }
+
+/* --- ETD buffer (v92) -------------------------------------------------
+   The control shows its own consequence: a number of days is abstract,
+   "the factory portal will see 05 Nov" is not. */
+.eb-preview { display: flex; flex-direction: column; gap: 2px; justify-content: flex-end; padding: 6px 10px; background: var(--pei-surface-2); border: 1px dashed var(--pei-border); border-radius: 8px; }
+.eb-preview.off { flex-direction: row; align-items: center; gap: 10px; }
+.eb-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--pei-muted); }
+.eb-date { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 14px; font-weight: 600; color: var(--pei-ink-2); }
+.eb-date.on { color: #B4342B; }
+.eb-note { font-size: 10.5px; color: var(--pei-muted); }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useOutletContext } from "react-router-dom";
 import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, saveMilestoneEdits, saveOrderFieldEdits, getColumnPrefs, saveColumnPrefs, ORDER_FIELD_COLUMNS, isOrderFieldKey } from "../../lib/workbenchApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { etdInRange } from "../../lib/deliveryDate.js";
 import { reminderFor, reminderTitle, todayIso, REMINDER_NONE, REMINDER_WINDOW_DAYS } from "../../lib/milestoneReminder.js";
 import { Pager } from "../../components/Pager.jsx";
 import {
@@ -385,8 +386,7 @@ export default function Workbench() {
     (f.label === "all" || o.labels?.name === f.label) &&
     (f.risk === "all" || o.risk === f.risk) &&
     (!f.q || `${o.po_prefix}${o.po_number} ${o.style} ${o.customers?.name || ""}`.toLowerCase().includes(f.q.toLowerCase())) &&
-    (!f.etdFrom || !o.etd || o.etd >= f.etdFrom) &&
-    (!f.etdTo || !o.etd || o.etd <= f.etdTo)
+    etdInRange(o, f.etdFrom, f.etdTo)
   ), [orders, f]);
 
   const allRows = useMemo(() => buildColorRows(filteredOrders, colorWaysByOrder), [filteredOrders, colorWaysByOrder]);

@@ -155,9 +155,19 @@ export function fiscalYearChoices() {
   return [current - 3, current - 2, current - 1, current, current + 1];
 }
 
+/* "Delivery Date" is first and is the default: it means coalesce(revised_etd,
+   etd) -- the latest committed date -- so a PO revised into December counts in
+   December. The two originals are kept below it because they answer different
+   questions: "ETD (original)" is the commitment performance is measured
+   against, and "Revised ETD only" deliberately returns ONLY orders that were
+   actually revised, which is the right basis for a slippage review and the
+   wrong one for a sales total. */
+export const DEFAULT_DATE_BASIS = "delivery";
+
 export const DATE_BASIS_OPTIONS = [
-  ["etd", "ETD"],
-  ["revised_etd", "Revised ETD"],
+  ["delivery", "Delivery Date (revised if any)"],
+  ["etd", "ETD (original)"],
+  ["revised_etd", "Revised ETD only"],
   ["po_issue", "PO Issue Date"],
   ["actual_etd", "Actual ETD"],
   ["crd", "CRD"],
@@ -233,7 +243,7 @@ export function exportHeaderBlock({
     [`REPORT NAME: ${reportName}`],
     [`REPORT TYPE: ${reportType}`],
     [`PERIOD: ${periodLabel || "All time"}`],
-    [`DATE BASIS: ${dateBasisLabel || "ETD"}`],
+    [`DATE BASIS: ${dateBasisLabel || "Delivery Date (revised if any)"}`],
     [`FACTORY: ${nameOf("factories", "code", filters.factoryCode) || "All factories"}`],
     [`MERCHANDISER: ${nameOf("merchandisers", "id", filters.merchandiserId, "full_name") || "All merchandisers"}`],
     [`CUSTOMER: ${nameOf("customers", "code", filters.customerCode) || "All customers"}`],

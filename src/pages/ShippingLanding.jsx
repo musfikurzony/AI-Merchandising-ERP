@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { listOrders, getOrderColorWays, splitOrderDelivery } from "../lib/ordersApi.js";
+import { effectiveEtd } from "../lib/deliveryDate.js";
 import {
   listShipments, getShipment, createShipment, updateShipment,
   getShipmentLines, addShipmentLine, updateShipmentLine, deleteShipmentLine, lockShipment, unlockShipment,
@@ -136,7 +137,7 @@ function AddLinePanel({ shipmentId, isNew, headerForm, onShipmentCreated, onAdde
     const groups = new Map();
     for (const o of orders) {
       const key = `${o.po_prefix}|${o.po_number}`;
-      if (!groups.has(key)) groups.set(key, { poPrefix: o.po_prefix, poNumber: o.po_number, factory: o.factories?.name, label: o.labels?.name, customer: o.customers?.name, etd: o.etd, totalOrderQty: 0, styles: [] });
+      if (!groups.has(key)) groups.set(key, { poPrefix: o.po_prefix, poNumber: o.po_number, factory: o.factories?.name, label: o.labels?.name, customer: o.customers?.name, etd: effectiveEtd(o), totalOrderQty: 0, styles: [] });
       const g = groups.get(key);
       g.totalOrderQty += o.qty;
       g.styles.push(o);

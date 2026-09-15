@@ -4,6 +4,7 @@ import { shippingTiles, todayBlock, onTrackPos, groupRowsByType, shipmentQuantit
 import { NOTIFICATION_TYPES, SEVERITY } from "../../lib/notificationsApi.js";
 import { orderMetrics } from "../../lib/reportsApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { effectiveEtdOf } from "../../lib/deliveryDate.js";
 import { KpiStrip, MyActions, TodayBlock, Pager, QuickActions, SectionHead, fmtNum } from "./parts.jsx";
 
 /* ==========================================================================
@@ -37,7 +38,9 @@ export default function ShippingView({ ds, rows, summary, plan, dateFormat, modu
     const scoped = typeFilter ? (byType.get(typeFilter) || []) : rows;
     return [...scoped]
       .filter(r => r.severity !== "normal")
-      .sort((a, b) => a.severityRank - b.severityRank || String(a.etd || "").localeCompare(String(b.etd || "")));
+      .sort((a, b) => a.severityRank - b.severityRank
+        // sort by the same date the ETD column displays, or the list disagrees with itself
+        || String(effectiveEtdOf(a.etd, a.revisedEtd) || "").localeCompare(String(effectiveEtdOf(b.etd, b.revisedEtd) || "")));
   }, [rows, byType, typeFilter]);
 
   useEffect(() => { setPage(1); }, [typeFilter, pageSize, rows]);

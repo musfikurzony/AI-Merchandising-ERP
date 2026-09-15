@@ -46,27 +46,33 @@ export default function ReportFilterBar({
   showGrouping = true, groupBy, onGroupBy, groupBy2, onGroupBy2,
   metric, onMetric, topN, onTopN,
   onGenerate, loading, dirty, generateLabel = "Generate report",
+  /* The Annual Sales Report's period IS a fiscal year by definition, and it
+     picks one with its own control. Rather than give it a second, contradictory
+     period picker, the WHEN row is suppressed — additively, so every existing
+     caller is untouched. `period` is then never read, which is why the
+     resolvePeriod call below is guarded rather than assumed. */
+  hidePeriod = false,
 }) {
   const [expanded, setExpanded] = useState(false);
   const set = (patch) => onFilters({ ...filters, ...patch });
   const setP = (patch) => onPeriod({ ...period, ...patch });
-  const resolved = resolvePeriod(period);
+  const resolved = period ? resolvePeriod(period) : null;
   const activeCount = countActiveFilters(filters);
 
   return (
     <div className="rc-card rpt-filterbar">
       {/* --- WHEN ------------------------------------------------------- */}
       <div className="rpt-filter-row">
-        <div className="rpt-field">
+        {!hidePeriod && <div className="rpt-field">
           <span className="field-label">Period</span>
           <div className="seg">
             {PERIOD_MODES.map(([k, l]) => (
               <button key={k} className={period.mode === k ? "active" : ""} onClick={() => setP({ mode: k })}>{l}</button>
             ))}
           </div>
-        </div>
+        </div>}
 
-        {(period.mode === "fy" || period.mode === "quarter") && (
+        {!hidePeriod && (period.mode === "fy" || period.mode === "quarter") && (
           <div className="rpt-field">
             <span className="field-label">Fiscal year (Feb–Jan)</span>
             <select value={period.fiscalYear} onChange={e => setP({ fiscalYear: e.target.value })}>
@@ -74,7 +80,7 @@ export default function ReportFilterBar({
             </select>
           </div>
         )}
-        {period.mode === "quarter" && (
+        {!hidePeriod && period.mode === "quarter" && (
           <div className="rpt-field">
             <span className="field-label">Quarter</span>
             <select value={period.quarter} onChange={e => setP({ quarter: e.target.value })}>
@@ -82,7 +88,7 @@ export default function ReportFilterBar({
             </select>
           </div>
         )}
-        {period.mode === "month" && (
+        {!hidePeriod && period.mode === "month" && (
           <>
             <div className="rpt-field">
               <span className="field-label">Month</span>
@@ -101,7 +107,7 @@ export default function ReportFilterBar({
             </div>
           </>
         )}
-        {period.mode === "range" && (
+        {!hidePeriod && period.mode === "range" && (
           <>
             <div className="rpt-field">
               <span className="field-label">From</span>
@@ -121,12 +127,15 @@ export default function ReportFilterBar({
           </select>
         </div>
 
-        <div className="rpt-field rpt-field-grow">
-          <span className="field-label">Resolves to</span>
-          <div className="rpt-resolved">
-            {resolved.dateFrom || resolved.dateTo ? `${resolved.dateFrom || "…"} → ${resolved.dateTo || "…"}` : "no date limit"}
+        {resolved && (
+          <div className="rpt-field rpt-field-grow">
+            <span className="field-label">Resolves to</span>
+            <div className="rpt-resolved">
+              {resolved.dateFrom || resolved.dateTo ? `${resolved.dateFrom || "…"} → ${resolved.dateTo || "…"}` : "no date limit"}
+            </div>
           </div>
-        </div>
+        )}
+        {!resolved && <span className="spacer" />}
 
         <button className="btn-amber" onClick={onGenerate} disabled={loading}>
           {loading ? "Working…" : dirty ? `${generateLabel} ●` : generateLabel}
