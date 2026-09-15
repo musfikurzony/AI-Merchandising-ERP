@@ -1266,3 +1266,49 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
   font-size: 10.5px; font-weight: 600; cursor: pointer;
 }
 .dn-discard:hover { background: #F6E9C8; }
+
+/* --------------------------------------------------------------------------
+   PO-WIDE FIELDS (v95)
+   --------------------------------------------------------------------------
+   The Merchandiser and the Factory ETD buffer are edited on one style's
+   screen but belong to the whole PO. The tag says so at the point of
+   editing, because finding out afterwards — from a report that disagrees
+   with itself — is how the per-style version of this bug went unnoticed. */
+.po-wide-tag {
+  margin-left: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #E0F2F1;
+  color: #1F5A57;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Confirmation that an edit reached the rest of the PO. Placed on the page
+   rather than in the modal, which closes on save. */
+.po-wide-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #065F46;
+  font-size: 12.5px;
+}
+.po-wide-note button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #065F46;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}

@@ -274,6 +274,35 @@ export async function saveMilestoneField(orderId, milestoneKey, colorWayName, fi
    assumed. Respects the same edit_orders/has_order_access RLS boundary as
    everything else -- .select().single() forces a real error on a blocked
    write instead of a silent no-op, same fix as assignFactory. */
+/* --------------------------------------------------------------------------
+   Fields that belong to the PO, not to the style row that happens to store
+   them.
+   --------------------------------------------------------------------------
+   The same reported bug as factory assignment, in two more places:
+
+     primary_merchandiser_id — "Once any PO, our merchandiser name, that
+       would go under PO. But currently see, it is under style." A PO is
+       followed by one person. Storing that per style means a four-style PO
+       needs the same name typed four times, and the first time one of them
+       is missed the PO has two owners and the follow-up lists disagree
+       about whose it is.
+
+     etd_buffer_days — a buffer is a date shown to a factory, and a factory
+       is booked per PO. A buffer on one style of a PO would show that
+       factory two different delivery dates for one booking, which is worse
+       than showing them the real one.
+
+   Everything else stays per style, and deliberately so: qty, FOB, fabric
+   reference, the ETD itself and its revision are genuinely properties of
+   the style line, and quietly fanning those across a PO would overwrite
+   real differences.
+
+   Nothing new is invented here — this is assignFactory's precedent, which
+   is already the right shape, applied to the other two fields that share
+   its grain. No migration: the storage does not change, only how many rows
+   one edit reaches. */
+export const PO_WIDE_FIELDS = ["primary_merchandiser_id", "etd_buffer_days"];
+
 export async function editOrder(orderId, before, changes, revisedEtdReason) {
   const { data: { user } } = await supabase.auth.getUser();
   const { data: updated, error } = await supabase.from("orders").update(changes).eq("id", orderId).select("id").single();
@@ -289,6 +318,59 @@ export async function editOrder(orderId, before, changes, revisedEtdReason) {
     entries.push({ order_id: orderId, actor_id: user.id, action: "order.field_edited", field_name: "revised_etd_reason", old_value: null, new_value: revisedEtdReason });
   }
   if (entries.length) await supabase.from("audit_log").insert(entries);
+
+  /* The PO-wide fields, applied to the rest of the PO. Done AFTER the main
+     write and reported separately: if this half fails the edit the user
+     made has still been saved, and they are told which styles were not
+     reached rather than being shown one error for the whole save. */
+  const poWide = {};
+  for (const f of PO_WIDE_FIELDS) {
+    if (f in changes && String(before[f] ?? "") !== String(changes[f] ?? "")) poWide[f] = changes[f];
+  }
+  if (Object.keys(poWide).length === 0) return { spread: null };
+  return { spread: await spreadAcrossPo(orderId, poWide, user.id) };
+}
+
+/* Apply a set of fields to every other live style under the same PO.
+   Row by row with .select().single(), the same as assignFactory, because
+   .update() with a filter reports success on zero rows when RLS blocks it —
+   a silent partial write is precisely the failure this is meant to prevent. */
+async function spreadAcrossPo(orderId, fields, actorId) {
+  const { data: thisOrder, error: findErr } = await supabase.from("orders")
+    .select("po_prefix, po_number").eq("id", orderId).single();
+  if (findErr || !thisOrder) return { updated: 0, total: 0, blocked: 0 };
+
+  const { data: siblings, error: sibErr } = await supabase.from("orders")
+    .select("id, " + PO_WIDE_FIELDS.join(", "))
+    .eq("po_prefix", thisOrder.po_prefix).eq("po_number", thisOrder.po_number)
+    .eq("is_deleted", false).neq("id", orderId);
+  if (sibErr || !siblings) return { updated: 0, total: 0, blocked: 0 };
+
+  let updated = 0, blocked = 0;
+  const audits = [];
+  for (const sib of siblings) {
+    /* Already correct? Leave it alone. Writing an identical value would put
+       a meaningless line in that style's Activity Log every time anybody
+       saved anything on any style of the PO. */
+    const needed = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (String(sib[k] ?? "") !== String(v ?? "")) needed[k] = v;
+    }
+    if (Object.keys(needed).length === 0) continue;
+
+    const { data: ok, error } = await supabase.from("orders").update(needed).eq("id", sib.id).select("id").single();
+    if (error || !ok) { blocked++; continue; }
+    updated++;
+    for (const [k, v] of Object.entries(needed)) {
+      audits.push({
+        order_id: sib.id, actor_id: actorId, action: "order.field_edited",
+        field_name: k, old_value: sib[k] != null ? String(sib[k]) : null,
+        new_value: v != null ? String(v) : null,
+      });
+    }
+  }
+  if (audits.length) await supabase.from("audit_log").insert(audits);
+  return { updated, total: siblings.length, blocked };
 }
 
 /* Add a new master-data value (Customer, Product Group, Label, Division,

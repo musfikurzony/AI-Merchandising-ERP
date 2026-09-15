@@ -65,6 +65,9 @@ export default function OrderDetail() {
   const [tab, setTab] = useState(TABS.some(t => t.key === requestedTab) ? requestedTab : "overview");
   const [showSheet, setShowSheet] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  /* Shown on the page, not in the modal: the modal closes on save, and a
+     notice the user never gets to read is the same as no notice. */
+  const [poWideNote, setPoWideNote] = useState(null);
   const [showCancel, setShowCancel] = useState(false);
   const [order, setOrder] = useState(null);
   const [colorWays, setColorWays] = useState([]);
@@ -138,6 +141,13 @@ export default function OrderDetail() {
           Some sections couldn't load and are showing empty: {partialErrors.join("; ")}
         </div>
       )}
+      {poWideNote && (
+        <div className="po-wide-note" role="status">
+          {poWideNote}
+          <button onClick={() => setPoWideNote(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: 8, marginBottom: 4 }}>
         <div>
           <div className="mono strong" style={{ fontSize: 22 }}>
@@ -176,7 +186,7 @@ export default function OrderDetail() {
       {tab === "activity" && <ActivityTab auditLog={auditLog} />}
 
       {showSheet && <WorkingSheet order={order} milestones={milestones} milestoneTypes={milestoneTypes} dateFormat={dateFormat} onClose={() => setShowSheet(false)} />}
-      {showEdit && <EditOrderModal order={order} factories={factories} labels={labels} dateFormat={dateFormat} onClose={() => setShowEdit(false)} onSaved={async () => { setShowEdit(false); await refresh(); }} />}
+      {showEdit && <EditOrderModal order={order} factories={factories} labels={labels} dateFormat={dateFormat} onClose={() => setShowEdit(false)} onSaved={async (note) => { setShowEdit(false); setPoWideNote(note || null); await refresh(); }} />}
       {showCancel && <CancellationModal order={order} onClose={() => setShowCancel(false)} onDone={async () => { setShowCancel(false); await refresh(); }} />}
     </div>
   );
@@ -841,11 +851,24 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
         business_unit_code: order.business_units?.code, primary_merchandiser_id: order.primary_merchandiser_id,
         fabric_ref: order.fabric_ref,
       };
-      await editOrder(order.id, before, changes, revisedEtdChanged ? form.revised_etd_reason.trim() : null);
+      const { spread } = await editOrder(order.id, before, changes, revisedEtdChanged ? form.revised_etd_reason.trim() : null);
+      /* The merchandiser and the buffer belong to the PO, so they were also
+         written to the other styles under it. Say so only when styles were
+         actually reached, and say it loudly when some were NOT — a partial
+         spread means the PO now disagrees with itself, and silence there is
+         how a PO ends up with two merchandisers. */
+      if (spread?.blocked) {
+        setError(`Saved — but ${spread.blocked} other style${spread.blocked !== 1 ? "s" : ""} under this PO could not be updated (no edit access). Ask an administrator to apply it, or this PO will hold two different values.`);
+        setSaving(false);
+        return;
+      }
+      const poWideNote = spread?.updated
+        ? `Merchandiser / buffer also applied to ${spread.updated} other style${spread.updated !== 1 ? "s" : ""} under this PO.`
+        : null;
       /* Only after the write succeeded. A failed save is exactly when the
          typing is most worth keeping, so the catch below does not clear. */
       clearDraft(`order.edit.${order.id}`);
-      await onSaved();
+      await onSaved(poWideNote);
     } catch (e) {
       setError(e.message);
     }
@@ -875,7 +898,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
           {bufferReady ? (
             <>
               <label className="edit-field">
-                Factory ETD buffer
+                Factory ETD buffer <span className="po-wide-tag" title="A buffer is a date shown to a factory, and a factory books per PO — so this applies to every style under this PO, not just this one">whole PO</span>
                 <select value={form.etd_buffer_days} onChange={e => set("etd_buffer_days", Number(e.target.value))}>
                   {BUFFER_CHOICES.map(c => <option key={c.days} value={c.days}>{c.label}</option>)}
                 </select>
@@ -906,7 +929,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
             </label>
           )}
           <label className="edit-field">Customer<SelectWithAddNew value={form.customer_code} onChange={v => set("customer_code", v)} options={options.customers} table="customers" onAdded={refreshOptions} /></label>
-          <label className="edit-field">Merchandiser<select value={form.primary_merchandiser_id} onChange={e => set("primary_merchandiser_id", e.target.value)}><option value="">—</option>{options.merchandisers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}</select></label>
+          <label className="edit-field">Merchandiser <span className="po-wide-tag" title="A PO is followed by one person — this applies to every style under this PO, not just this one">whole PO</span><select value={form.primary_merchandiser_id} onChange={e => set("primary_merchandiser_id", e.target.value)}><option value="">—</option>{options.merchandisers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}</select></label>
           <label className="edit-field">Division<SelectWithAddNew value={form.division_code} onChange={v => set("division_code", v)} options={options.divisions} table="divisions" onAdded={refreshOptions} /></label>
           <label className="edit-field">Business Unit<SelectWithAddNew value={form.business_unit_code} onChange={v => set("business_unit_code", v)} options={options.businessUnits} table="business_units" onAdded={refreshOptions} /></label>
           <label className="edit-field">Factory<select value={form.factory_code} onChange={e => set("factory_code", e.target.value)}><option value="">Not yet assigned</option>{factories.map(f => <option key={f.code} value={f.code}>{f.code} - {f.name}</option>)}</select></label>
