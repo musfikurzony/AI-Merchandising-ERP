@@ -20,6 +20,7 @@ import ReportFilterBar from "../../components/ReportFilterBar.jsx";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import ReportPreviewModal from "../../components/ReportPreviewModal.jsx";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* Executive Dashboard — the management view of the whole book of business.
 
@@ -60,8 +61,8 @@ export default function ExecutiveDashboard() {
   const { dateFormat, profile } = useOutletContext() || {};
   const [org, setOrg] = useState(null);
   const [options, setOptions] = useState({});
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [period, setPeriod] = useState(defaultPeriod());
+  const [filters, setFilters] = useSticky("executive", "filters", EMPTY_FILTERS);
+  const [period, setPeriod] = useSticky("executive", "period", defaultPeriod());
   const [applied, setApplied] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,12 +70,12 @@ export default function ExecutiveDashboard() {
   const [generatedAt, setGeneratedAt] = useState(null);
   const [dirty, setDirty] = useState(false);
 
-  const [groupBy, setGroupBy] = useState("factory");
-  const [groupBy2, setGroupBy2] = useState("");
-  const [metric, setMetric] = useState("orderedQty");
-  const [topN, setTopN] = useState("");
+  const [groupBy, setGroupBy] = useSticky("executive", "groupBy", "factory");
+  const [groupBy2, setGroupBy2] = useSticky("executive", "groupBy2", "");
+  const [metric, setMetric] = useSticky("executive", "metric", "orderedQty");
+  const [topN, setTopN] = useSticky("executive", "topN", "");
   const [openGroups, setOpenGroups] = useState({});
-  const [trendMetric, setTrendMetric] = useState("qty");
+  const [trendMetric, setTrendMetric] = useSticky("executive", "trendMetric", "qty");
 
   const [excelSheets, setExcelSheets] = useState(null);
   const [pdfDescriptor, setPdfDescriptor] = useState(null);
@@ -281,7 +282,7 @@ export default function ExecutiveDashboard() {
       <DataIntegrityNotice integrity={data?.integrity} />
       {error && <div className="bk-note warn" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <ReportFilterBar
+      <ReportFilterBar scope="executive"
         filters={filters} onFilters={onFiltersChange}
         period={period} onPeriod={onPeriodChange}
         options={options} seasons={seasons}

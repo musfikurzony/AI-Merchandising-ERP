@@ -6,6 +6,8 @@ import { getMilestoneTypes, listWorkbenchOrders, listColorWays, listMilestones, 
 import { fmtCompact } from "../../lib/dateFormat.js";
 import { etdInRange } from "../../lib/deliveryDate.js";
 import { completedLate, lateByDays } from "../../lib/milestoneReminder.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
+import RestoredNotice from "../../components/RestoredNotice.jsx";
 
 /* Real port of v13's actual FollowupReport (confirmed against the real
    source, not the milestone-description guess this replaced): grouped by
@@ -286,7 +288,7 @@ export default function FollowUpReport() {
   /* On by default: the Status is a business field, and a management sheet
      that quietly dropped it would be missing the thing it is read for. It can
      be switched off for a purely date-focused factory hand-out. */
-  const [showStatus, setShowStatus] = useState(true);
+  const [showStatus, setShowStatus] = useSticky("followup", "showStatus", true);
 
   /* The column headers stick directly under the toolbar. Its height is
      measured rather than hardcoded — it wraps to two or three rows on a narrow
@@ -303,7 +305,7 @@ export default function FollowUpReport() {
     return () => ro.disconnect();
   }, []);
 
-  const [filters, setFilters] = useState({ factoryCode: "all", merchandiser: "all", productGroup: "all", customerCode: "all", etdFrom: "", etdTo: "" });
+  const [filters, setFilters] = useSticky("followup", "filters", { factoryCode: "all", merchandiser: "all", productGroup: "all", customerCode: "all", etdFrom: "", etdTo: "" });
 
   useEffect(() => {
     setLoading(true); setError(null);
@@ -374,6 +376,7 @@ export default function FollowUpReport() {
           the third group when you decide to change a filter or print — having
           to scroll back to the top for that was the complaint. */}
       <div className="fu-toolbar" ref={toolbarRef}>
+      <RestoredNotice scope="followup" />
       <div className="filter-row">
         <select value={filters.factoryCode} onChange={e => setFilters({ ...filters, factoryCode: e.target.value })}><option value="all">All Factories</option>{factories.map(f => <option key={f} value={f}>{f}</option>)}</select>
         <select value={filters.merchandiser} onChange={e => setFilters({ ...filters, merchandiser: e.target.value })}><option value="all">All Merchandisers</option>{merchandisers.map(m => <option key={m} value={m}>{m}</option>)}</select>

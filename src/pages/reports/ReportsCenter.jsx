@@ -15,6 +15,7 @@ import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
 import ReportFilterBar from "../../components/ReportFilterBar.jsx";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import ReportPreviewModal from "../../components/ReportPreviewModal.jsx";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* Reports Center — the real v13 catalog (3 categories, 9 reports) over one
    shared dataset.
@@ -22,7 +23,7 @@ import ReportPreviewModal from "../../components/ReportPreviewModal.jsx";
    What changed in v81, and why:
 
    - ONE FILTER ENGINE. The bespoke filter row this screen used to carry
-     was replaced by the shared <ReportFilterBar>, which every report now
+     was replaced by the shared <ReportFilterBar scope="reports">, which every report now
      uses. Every report is therefore sliceable by the same full set of
      dimensions — factory, merchandiser, customer, product group, label,
      division, business unit, season, style, PO, status — over a period
@@ -90,8 +91,8 @@ function BarRow({ label, value, max, color }) {
 export default function ReportsCenter() {
   const { profile } = useOutletContext() || {};
   const [org, setOrg] = useState(null);
-  const [category, setCategory] = useState("Operational");
-  const [reportKey, setReportKey] = useState("open_orders");
+  const [category, setCategory] = useSticky("reports", "category", "Operational");
+  const [reportKey, setReportKey] = useSticky("reports", "reportKey", "open_orders");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -99,13 +100,13 @@ export default function ReportsCenter() {
   const [generatedAt, setGeneratedAt] = useState(null);
   const [dirty, setDirty] = useState(false);
 
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [period, setPeriod] = useState(defaultPeriod());
+  const [filters, setFilters] = useSticky("reports", "filters", EMPTY_FILTERS);
+  const [period, setPeriod] = useSticky("reports", "period", defaultPeriod());
   const [applied, setApplied] = useState(null);
-  const [groupBy, setGroupBy] = useState("factory");
-  const [groupBy2, setGroupBy2] = useState("");
-  const [metric, setMetric] = useState("orderedQty");
-  const [topN, setTopN] = useState("");
+  const [groupBy, setGroupBy] = useSticky("reports", "groupBy", "factory");
+  const [groupBy2, setGroupBy2] = useSticky("reports", "groupBy2", "");
+  const [metric, setMetric] = useSticky("reports", "metric", "orderedQty");
+  const [topN, setTopN] = useSticky("reports", "topN", "");
   const [openGroups, setOpenGroups] = useState({});
 
   const [excelSheets, setExcelSheets] = useState(null);

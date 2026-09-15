@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listMyOrders, submitCrdUpdate, getCrdHistory } from "../../lib/factoryApi.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 function CrdModal({ selectedOrders, onClose, onSubmitted }) {
   const [newCrd, setNewCrd] = useState("");
@@ -112,7 +113,7 @@ export default function FactoryMyOrders() {
   const [historyOrder, setHistoryOrder] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
 
-  const [filters, setFilters] = useState({ po: "", customer: "", productGroup: "", etdFrom: "", etdTo: "", status: "" });
+  const [filters, setFilters] = useSticky("factory-orders", "filters", { po: "", customer: "", productGroup: "", etdFrom: "", etdTo: "", status: "" });
 
   async function refresh() {
     setLoading(true); setError(null);

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { getKpiData, rollupByDimension } from "../../lib/kpiApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
+import RestoredNotice from "../../components/RestoredNotice.jsx";
 
 /* KPI Dashboard, Milestone 7. Every formula here was confirmed directly
    with the user, not invented -- see kpiApi.js for the single shared
@@ -82,11 +84,11 @@ export default function KpiDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [drillDown, setDrillDown] = useState(null);
-  const [rollupTab, setRollupTab] = useState("factory");
-  const [sortKey, setSortKey] = useState("criticalPathRate");
-  const [sortDir, setSortDir] = useState("asc");
+  const [rollupTab, setRollupTab] = useSticky("kpi", "rollupTab", "factory");
+  const [sortKey, setSortKey] = useSticky("kpi", "sortKey", "criticalPathRate");
+  const [sortDir, setSortDir] = useSticky("kpi", "sortDir", "asc");
 
-  const [filters, setFilters] = useState({ factoryCode: "", merchandiserId: "", customerCode: "", productGroupCode: "", divisionCode: "", businessUnitCode: "", season: "", poStyleSearch: "", etdFrom: "", etdTo: "" });
+  const [filters, setFilters] = useSticky("kpi", "filters", { factoryCode: "", merchandiserId: "", customerCode: "", productGroupCode: "", divisionCode: "", businessUnitCode: "", season: "", poStyleSearch: "", etdFrom: "", etdTo: "" });
   const [options, setOptions] = useState({ factories: [], merchandisers: [], customers: [], productGroups: [], divisions: [], businessUnits: [], seasons: [] });
 
   async function refresh() {
@@ -136,6 +138,7 @@ export default function KpiDashboard() {
       <h2 style={{ marginTop: 0 }}>KPI Dashboard</h2>
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
 
+      <RestoredNotice scope="kpi" />
       <div className="filter-row">
         <select value={filters.factoryCode} onChange={e => setFilters({ ...filters, factoryCode: e.target.value })}><option value="">All Factories</option>{options.factories.map(([c, n]) => <option key={c} value={c}>{n || c}</option>)}</select>
         <select value={filters.merchandiserId} onChange={e => setFilters({ ...filters, merchandiserId: e.target.value })}><option value="">All Merchandisers</option>{options.merchandisers.map(([id, n]) => <option key={id} value={id}>{n || id}</option>)}</select>

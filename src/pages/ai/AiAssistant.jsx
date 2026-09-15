@@ -18,6 +18,7 @@ import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
 import ReportFilterBar from "../../components/ReportFilterBar.jsx";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { useSticky, useStickyScope, useEffectSkipFirst } from "../../lib/viewState.js";
 
 /* ==========================================================================
    AI Assistant — Operational Control Tower
@@ -147,10 +148,17 @@ export default function AiAssistant() {
   const initialFactory = searchParams.get("factory");
   const initialMerchandiser = searchParams.get("merchandiser");
 
+  /* A drill-down link beats stored state — see the note in OrdersList. Here
+     the link carries the DRILL-DOWN (which notification type, which severity,
+     which factory), so those are the fields it overrides; the filter bar and
+     period are left to restore normally. */
+  const cameFromLink = ["type", "severity", "categories", "factory", "merchandiser"]
+    .some(k => searchParams.get(k) !== null);
+
   const [org, setOrg] = useState(null);
   const [options, setOptions] = useState({});
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [period, setPeriod] = useState({ ...defaultPeriod(), mode: "all" });
+  const [filters, setFilters] = useSticky("ai", "filters", EMPTY_FILTERS);
+  const [period, setPeriod] = useSticky("ai", "period", { ...defaultPeriod(), mode: "all" });
   const [applied, setApplied] = useState(null);
   const [ds, setDs] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -158,23 +166,23 @@ export default function AiAssistant() {
   const [dirty, setDirty] = useState(false);
   const [generatedAt, setGeneratedAt] = useState(null);
 
-  const [audience, setAudience] = useState(defaultAudienceForRole(role));
-  const [onlyMine, setOnlyMine] = useState(role === "merchandiser");
-  const [detailType, setDetailType] = useState(NOTIFICATION_TYPES[initialType] ? initialType : null);   // null = Level 2 (cards)
-  const [detailFilter, setDetailFilter] = useState(
+  const [audience, setAudience] = useSticky("ai", "audience", defaultAudienceForRole(role));
+  const [onlyMine, setOnlyMine] = useSticky("ai", "onlyMine", role === "merchandiser");
+  const [detailType, setDetailType] = useSticky("ai", "detailType", NOTIFICATION_TYPES[initialType] ? initialType : null, { fromUrl: cameFromLink });   // null = Level 2 (cards)
+  const [detailFilter, setDetailFilter] = useSticky("ai", "detailFilter",
     initialFactory ? { dim: "factory", value: initialFactory }
     : initialMerchandiser ? { dim: "merchandiser", value: initialMerchandiser }
-    : null
-  );  // drill-down from a workload row
-  const [detailSev, setDetailSev] = useState(SEVERITY[initialSeverity] ? initialSeverity : null);       // severity slice of a type
-  const [showAll, setShowAll] = useState(Boolean(initialSeverity || initialCategories));   // "Detail list" with no type chosen
-  const [detailCats, setDetailCats] = useState(initialCategories ? initialCategories.split(",") : null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+    : null,
+    { fromUrl: cameFromLink });  // drill-down from a workload row
+  const [detailSev, setDetailSev] = useSticky("ai", "detailSev", SEVERITY[initialSeverity] ? initialSeverity : null, { fromUrl: cameFromLink });       // severity slice of a type
+  const [showAll, setShowAll] = useSticky("ai", "showAll", Boolean(initialSeverity || initialCategories), { fromUrl: cameFromLink });   // "Detail list" with no type chosen
+  const [detailCats, setDetailCats] = useSticky("ai", "detailCats", initialCategories ? initialCategories.split(",") : null, { fromUrl: cameFromLink });
+  const [page, setPage] = useSticky("ai", "page", 1);
+  const [pageSize, setPageSize] = useSticky("ai", "pageSize", 50);
   const [excelSheets, setExcelSheets] = useState(null);
   const [excelTitle, setExcelTitle] = useState("");
-  const [workloadDim, setWorkloadDim] = useState("factory");
-  const [trendStep, setTrendStep] = useState(7);   // 7d, 30d or 90d between points
+  const [workloadDim, setWorkloadDim] = useSticky("ai", "workloadDim", "factory");
+  const [trendStep, setTrendStep] = useSticky("ai", "trendStep", 7);   // 7d, 30d or 90d between points
 
   useEffect(() => {
     loadOrganization().then(setOrg);
@@ -268,7 +276,11 @@ export default function AiAssistant() {
   const pageCount = Math.max(1, Math.ceil(detailRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = detailRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  useEffect(() => { setPage(1); }, [detailType, detailSev, detailFilter, showAll, pageSize, audience, onlyMine]);
+  /* Skips the FIRST run. "Go back to page 1 when the filter changes" is what
+     this rule always meant; firing it on mount as well would overwrite the
+     page number restored from where the user left off, so the restore would
+     appear to work for every field except this one. */
+  useEffectSkipFirst(() => { setPage(1); }, [detailType, detailSev, detailFilter, showAll, pageSize, audience, onlyMine]);
 
   /* --- Level 4: Excel, exactly the rows currently filtered -------------- */
   /* The corporate header comes from the shared builder in reportContext,
@@ -357,7 +369,7 @@ export default function AiAssistant() {
         </p>
       </div>
 
-      <ReportFilterBar
+      <ReportFilterBar scope="ai"
         filters={filters} onFilters={f => { setFilters(f); setDirty(true); }}
         period={period} onPeriod={p => { setPeriod(p); setDirty(true); }}
         options={options} seasons={seasons}

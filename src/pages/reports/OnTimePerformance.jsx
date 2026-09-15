@@ -15,6 +15,7 @@ import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
 import ReportFilterBar from "../../components/ReportFilterBar.jsx";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import ReportPreviewModal from "../../components/ReportPreviewModal.jsx";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* On-Time Performance — rebuilt to the Shipment Control prototype's layout.
 
@@ -47,12 +48,12 @@ export default function OnTimePerformance() {
   const { dateFormat, profile } = ctx;
 
   const [org, setOrg] = useState(null);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [period, setPeriod] = useState(defaultPeriod());
-  const [dimension, setDimension] = useState("factory");
-  const [dimension2, setDimension2] = useState("");
-  const [metric, setMetric] = useState("orderedQty");
-  const [topN, setTopN] = useState("");
+  const [filters, setFilters] = useSticky("ontime", "filters", EMPTY_FILTERS);
+  const [period, setPeriod] = useSticky("ontime", "period", defaultPeriod());
+  const [dimension, setDimension] = useSticky("ontime", "dimension", "factory");
+  const [dimension2, setDimension2] = useSticky("ontime", "dimension2", "");
+  const [metric, setMetric] = useSticky("ontime", "metric", "orderedQty");
+  const [topN, setTopN] = useSticky("ontime", "topN", "");
   const [dirty, setDirty] = useState(false);
 
   const [applied, setApplied] = useState(null);   // the filters the shown report was actually built from
@@ -204,7 +205,7 @@ export default function OnTimePerformance() {
       <DataIntegrityNotice integrity={data?.integrity} />
       {error && <div className="bk-note warn" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <ReportFilterBar
+      <ReportFilterBar scope="ontime"
         filters={filters} onFilters={f => { setFilters(f); setDirty(true); }}
         period={period} onPeriod={p => { setPeriod(p); setDirty(true); }}
         options={options} seasons={seasons}

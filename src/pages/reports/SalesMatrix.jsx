@@ -13,6 +13,7 @@ import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
 import ReportFilterBar from "../../components/ReportFilterBar.jsx";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import ReportPreviewModal from "../../components/ReportPreviewModal.jsx";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* ==========================================================================
    Annual Sales Report — the fiscal year on one page.
@@ -53,12 +54,12 @@ export default function SalesMatrix() {
   const { profile } = ctx;
 
   const [org, setOrg] = useState(null);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [fiscalYear, setFiscalYear] = useState(currentFiscalYear());
-  const [scope, setScope] = useState("both");
-  const [measure, setMeasure] = useState("qty");
-  const [dimension, setDimension] = useState("factory");
-  const [topN, setTopN] = useState("");
+  const [filters, setFilters] = useSticky("salesmatrix", "filters", EMPTY_FILTERS);
+  const [fiscalYear, setFiscalYear] = useSticky("salesmatrix", "fiscalYear", currentFiscalYear());
+  const [scope, setScope] = useSticky("salesmatrix", "scope", "both");
+  const [measure, setMeasure] = useSticky("salesmatrix", "measure", "qty");
+  const [dimension, setDimension] = useSticky("salesmatrix", "dimension", "factory");
+  const [topN, setTopN] = useSticky("salesmatrix", "topN", "");
   const [dirty, setDirty] = useState(false);
 
   const [applied, setApplied] = useState(null);
@@ -269,7 +270,7 @@ export default function SalesMatrix() {
         <button className="btn-outline" onClick={() => setShowPdf(true)} disabled={!matrix}>Export PDF</button>
       </div>
 
-      <ReportFilterBar
+      <ReportFilterBar scope="salesmatrix"
         filters={filters} onFilters={f => { setFilters(f); setDirty(true); }}
         options={options} seasons={seasons}
         showGrouping={false}

@@ -5,6 +5,7 @@ import { hasModulePermission, ROLE_LANDING_ROUTE } from "../lib/permissions.js";
 import { DATE_FORMAT_OPTIONS } from "../lib/dateFormat.js";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import GlobalSearch from "./GlobalSearch.jsx";
+import { useStickyPreference } from "../lib/viewState.js";
 
 /* Grouping and labels exactly as specified. Administration is deliberately
    NOT included here -- it stays separately protected via /admin, its own
@@ -84,7 +85,12 @@ export default function ErpShell({ profile, signOut }) {
   // whoever actually has access, reusing the same has_module_permission()
   // check RequireModule itself uses, not a hardcoded role list.
   const [canSeeAdmin, setCanSeeAdmin] = useState(false);
-  const [dateFormat, setDateFormat] = useState("DDMMYY");
+  /* A genuine preference, not view state: how this person reads dates. It
+     belongs in localStorage so it survives closing the browser, and it
+     carries none of the missing-data risk a forgotten filter does — a date
+     shown as 15/11/26 rather than 11/15/26 is wrong-looking, never absent.
+     It had been resetting to DD/MM/YY on every single reload. */
+  const [dateFormat, setDateFormat] = useStickyPreference("dateFormat", "DDMMYY");
   useEffect(() => {
     let cancelled = false;
     hasModulePermission("administration", "view").then(result => { if (!cancelled) setCanSeeAdmin(result); }).catch(() => { if (!cancelled) setCanSeeAdmin(false); });

@@ -6,6 +6,7 @@ import { orderMetrics } from "../../lib/reportsApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
 import { effectiveEtdOf } from "../../lib/deliveryDate.js";
 import { KpiStrip, MyActions, TodayBlock, Pager, QuickActions, SectionHead, fmtNum } from "./parts.jsx";
+import { useSticky, useStickyScope, useEffectSkipFirst } from "../../lib/viewState.js";
 
 /* ==========================================================================
    The shipping user's landing page.
@@ -25,9 +26,9 @@ import { KpiStrip, MyActions, TodayBlock, Pager, QuickActions, SectionHead, fmtN
 const SHIPPING_TYPES = ["etd_passed", "shipping_window", "short_shipment", "split_delivery", "shipment_docs", "ready_to_invoice"];
 
 export default function ShippingView({ ds, rows, summary, plan, dateFormat, modules, scope, onExport }) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [typeFilter, setTypeFilter] = useState(null);
+  const [page, setPage] = useSticky("dash-ship", "page", 1);
+  const [pageSize, setPageSize] = useSticky("dash-ship", "pageSize", 25);
+  const [typeFilter, setTypeFilter] = useSticky("dash-ship", "typeFilter", null);
 
   const tiles = useMemo(() => shippingTiles(ds, rows, scope), [ds, rows, scope]);
   const block = useMemo(() => todayBlock(rows, 6), [rows]);
@@ -43,7 +44,11 @@ export default function ShippingView({ ds, rows, summary, plan, dateFormat, modu
         || String(effectiveEtdOf(a.etd, a.revisedEtd) || "").localeCompare(String(effectiveEtdOf(b.etd, b.revisedEtd) || "")));
   }, [rows, byType, typeFilter]);
 
-  useEffect(() => { setPage(1); }, [typeFilter, pageSize, rows]);
+  /* Skips the FIRST run. "Go back to page 1 when the filter changes" is what
+     this rule always meant; firing it on mount as well would overwrite the
+     page number restored from where the user left off, so the restore would
+     appear to work for every field except this one. */
+  useEffectSkipFirst(() => { setPage(1); }, [typeFilter, pageSize, rows]);
 
   const pageCount = Math.max(1, Math.ceil(actionRows.length / pageSize));
   const current = Math.min(page, pageCount);

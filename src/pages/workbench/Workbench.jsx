@@ -9,6 +9,8 @@ import {
   FROZEN_COLUMNS, milestoneWidthsFor, offsetsFor, clampWidth,
   loadWidths, saveWidths, clearWidths, autoFitWidth, defaultWidths,
 } from "../../lib/workbenchColumns.js";
+import { useSticky, useStickyScope, useEffectSkipFirst } from "../../lib/viewState.js";
+import RestoredNotice from "../../components/RestoredNotice.jsx";
 
 /* Faithful port of Prototype v13's Daily Workbench -- same grid structure,
    same interactions (frozen columns with synced top/bottom scroll,
@@ -321,7 +323,7 @@ export default function Workbench() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const [f, setF] = useState({ lifecycle: "open", q: "", factory: "all", label: "all", productGroup: "all", merchandiser: "all", risk: "all", etdFrom: "", etdTo: "" });
+  const [f, setF] = useSticky("workbench", "f", { lifecycle: "open", q: "", factory: "all", label: "all", productGroup: "all", merchandiser: "all", risk: "all", etdFrom: "", etdTo: "" });
   const [edits, setEdits] = useState({}); // rowId -> milestoneKey -> { field: value }
   const [selected, setSelected] = useState(() => new Set());
   const [clipboard, setClipboard] = useState(null);
@@ -401,15 +403,19 @@ export default function Workbench() {
      Fifty rows is ~5,400 nodes and edits land in single-digit milliseconds.
      Filtering, searching and the copy/paste selection all still operate on
      the filtered set; the page is a window onto it, not a different set. */
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useSticky("workbench", "page", 1);
+  const [pageSize, setPageSize] = useSticky("workbench", "pageSize", 50);
   const pageCount = Math.max(1, Math.ceil(allRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const rows = useMemo(
     () => allRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
     [allRows, currentPage, pageSize]
   );
-  useEffect(() => { setPage(1); }, [f, pageSize]);
+  /* Skips the FIRST run. "Go back to page 1 when the filter changes" is what
+     this rule always meant; firing it on mount as well would overwrite the
+     page number restored from where the user left off, so the restore would
+     appear to work for every field except this one. */
+  useEffectSkipFirst(() => { setPage(1); }, [f, pageSize]);
   const cols = useMemo(() => milestoneTypes.filter(c => colPrefs[c.key]), [milestoneTypes, colPrefs]);
 
   const { lefts, total: frozenWidth } = useMemo(() => offsetsFor(widths), [widths]);
@@ -664,6 +670,7 @@ export default function Workbench() {
 
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
 
+      <RestoredNotice scope="workbench" />
       <div className="filter-row wb-filters">
         <input className="table-search wb-search" placeholder="Search PO, style, customer…" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} />
         <button className={"filter-chip" + (f.lifecycle === "open" ? " active" : "")} onClick={() => setF({ ...f, lifecycle: "open" })}>Open Orders</button>

@@ -4,6 +4,7 @@ import {
   PERIOD_MODES, MONTH_NAMES, fiscalQuarters, DATE_BASIS_OPTIONS,
   fiscalYearChoices, resolvePeriod, countActiveFilters,
 } from "../lib/reportContext.js";
+import RestoredNotice from "./RestoredNotice.jsx";
 
 /* ONE filter engine for every report.
 
@@ -52,6 +53,10 @@ export default function ReportFilterBar({
      caller is untouched. `period` is then never read, which is why the
      resolvePeriod call below is guarded rather than assumed. */
   hidePeriod = false,
+  /* The scope whose restored state this bar should announce. Passed in rather
+     than guessed, because one component serves seven screens and each keeps
+     its own filters. */
+  scope = null,
 }) {
   const [expanded, setExpanded] = useState(false);
   const set = (patch) => onFilters({ ...filters, ...patch });
@@ -61,6 +66,7 @@ export default function ReportFilterBar({
 
   return (
     <div className="rc-card rpt-filterbar">
+      {scope && <RestoredNotice scope={scope} />}
       {/* --- WHEN ------------------------------------------------------- */}
       <div className="rpt-filter-row">
         {!hidePeriod && <div className="rpt-field">

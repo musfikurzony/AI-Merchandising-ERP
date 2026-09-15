@@ -19,6 +19,7 @@ import DataIntegrityNotice from "../../components/DataIntegrityNotice.jsx";
 import ManagementView from "./ManagementView.jsx";
 import MerchandiserView from "./MerchandiserView.jsx";
 import ShippingView from "./ShippingView.jsx";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* ==========================================================================
    The Dashboard — one personalized landing page.
@@ -51,16 +52,16 @@ export default function Dashboard() {
 
   const [org, setOrg] = useState(null);
   const [options, setOptions] = useState({});
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [period, setPeriod] = useState(defaultPeriod());   // current fiscal year
+  const [filters, setFilters] = useSticky("dashboard", "filters", EMPTY_FILTERS);
+  const [period, setPeriod] = useSticky("dashboard", "period", defaultPeriod());   // current fiscal year
   const [applied, setApplied] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [generatedAt, setGeneratedAt] = useState(null);
-  const [view, setView] = useState(dashboardViewForRole(role));
-  const [onlyMine, setOnlyMine] = useState(defaultOnlyMine(role));
+  const [view, setView] = useSticky("dashboard", "view", dashboardViewForRole(role));
+  const [onlyMine, setOnlyMine] = useSticky("dashboard", "onlyMine", defaultOnlyMine(role));
   const [modules, setModules] = useState({});
   const [excelSheets, setExcelSheets] = useState(null);
   const [excelTitle, setExcelTitle] = useState("");
@@ -193,7 +194,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <ReportFilterBar
+      <ReportFilterBar scope="dashboard"
         filters={filters} onFilters={f => { setFilters(f); setDirty(true); }}
         period={period} onPeriod={p => { setPeriod(p); setDirty(true); }}
         options={options} seasons={seasons}

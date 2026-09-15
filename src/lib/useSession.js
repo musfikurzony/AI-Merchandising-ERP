@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient.js";
+import { clearAllViewState } from "./viewState.js";
 
 /* Real session handling -- no mock users, no hardcoded roles. On sign-in,
    also fetches the profile row (role, must_change_password, etc.) since
@@ -73,6 +74,13 @@ export function useSession() {
     return { error };
   }
   async function signOut() {
+    /* Wipe the per-screen view state before ending the session. Two people
+       share a machine more often than anyone plans for, and the second one
+       should not open the Workbench to the first one's factory filter and
+       wonder where the rest of the order book went. The date-format
+       PREFERENCE is deliberately left alone — it belongs to the browser, not
+       to the session. */
+    clearAllViewState();
     await supabase.auth.signOut();
   }
 

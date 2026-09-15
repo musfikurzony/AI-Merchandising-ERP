@@ -5,6 +5,8 @@ import { stamp } from "../../lib/exportPreview.js";
 import { listOrders, getFilterOptions, assignFactory, getOrderColorWaysForOrders, getPoCancellationDetails, getExFactoryMilestonesForOrders } from "../../lib/ordersApi.js";
 import { getShipmentLinesForOrders } from "../../lib/shipmentApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
+import RestoredNotice from "../../components/RestoredNotice.jsx";
 
 const LIFECYCLE = [
   ["all", "All"], ["unassigned", "Unassigned"], ["sourcing", "Sourcing"],
@@ -109,8 +111,19 @@ export default function OrdersList() {
      table the user cannot explain. */
   const requestedLifecycle = searchParams.get("lifecycle");
   const initialLifecycle = LIFECYCLE.some(([k]) => k === requestedLifecycle) ? requestedLifecycle : "all";
-  const [lifecycle, setLifecycle] = useState(initialLifecycle);
-  const [filters, setFilters] = useState({
+
+  /* A link WINS over whatever this screen was last left showing. The whole
+     point of a clickable KPI is that it lands you on the thing you clicked;
+     if an hour-old stored filter could override it, every drill-down from
+     the Dashboard would appear broken in a way nobody could explain. So when
+     the URL carries filters, `fromUrl` makes the link the truth and
+     overwrites what was stored. With no query string, the screen comes back
+     exactly as it was left. */
+  const FILTER_KEYS = ["productGroup", "label", "customer", "merchandiser", "etdFrom", "etdTo", "factory", "mine"];
+  const cameFromLink = FILTER_KEYS.some(k => searchParams.get(k) !== null) || requestedLifecycle !== null;
+
+  const [lifecycle, setLifecycle] = useSticky("orders", "lifecycle", initialLifecycle, { fromUrl: cameFromLink });
+  const [filters, setFilters] = useSticky("orders", "filters", {
     productGroupCode: searchParams.get("productGroup") || "",
     labelCode: searchParams.get("label") || "",
     customerCode: searchParams.get("customer") || "",
@@ -119,8 +132,8 @@ export default function OrdersList() {
     etdTo: searchParams.get("etdTo") || "",
     factoryCode: searchParams.get("factory") || "",
     onlyMine: searchParams.get("mine") === "1",
-  });
-  const [searchTerm, setSearchTerm] = useState("");
+  }, { fromUrl: cameFromLink });
+  const [searchTerm, setSearchTerm] = useSticky("orders", "searchTerm", "", { fromUrl: cameFromLink });
   const [colorWaysByOrder, setColorWaysByOrder] = useState(new Map());
 
   useEffect(() => { getFilterOptions().then(setOptions); }, []);
@@ -293,6 +306,7 @@ export default function OrdersList() {
         <button className="btn-primary" onClick={exportToExcel} disabled={exporting || orders.length === 0}>{exporting ? "Exporting..." : "Export to Excel"}</button>
       </div>
 
+      <RestoredNotice scope="orders" />
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
       {loading ? <p>Loading...</p> : (
         <div className="card no-pad">

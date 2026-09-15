@@ -5,6 +5,7 @@ import ReportPreviewModal from "../components/ReportPreviewModal.jsx";
 import { stamp } from "../lib/exportPreview.js";
 import { getFilterOptions } from "../lib/ordersApi.js";
 import { buildShippingInvoiceRows, computeOpenOrders, computeShippedOrders } from "../lib/reportsApi.js";
+import { useSticky, useStickyScope } from "../lib/viewState.js";
 
 /* First practical Shipping Report -- Shipping Invoice List. Reuses
    reportsApi.js entirely (buildReportDataset/computeOpenOrders/
@@ -23,12 +24,12 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 
 export default function ShippingReports() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useSticky("shipping-reports", "filters", {
     factoryCode: "", productGroupCode: "", labelCode: "", customerCode: "", status: "",
     invoiceNumber: "", po: "", style: "", dateBasis: "actual_etd", dateFrom: "", dateTo: "",
   });
-  const [year, setYear] = useState("");
-  const [month, setMonth] = useState("");
+  const [year, setYear] = useSticky("shippingreports", "year", "");
+  const [month, setMonth] = useSticky("shippingreports", "month", "");
   const [options, setOptions] = useState({ factories: [], customers: [], productGroups: [], labels: [] });
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);

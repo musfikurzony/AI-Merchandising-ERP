@@ -11,6 +11,7 @@ import {
 import { SERIES_ACTUAL, getFiscalYear } from "../../lib/reportsApi.js";
 import { loadGrowth, growthDeltas, GROWTH_METRICS, hasAnyData } from "../../lib/growthApi.js";
 import { KpiStrip, MyActions, TodayBlock, QuickActions, SectionHead, fmtNum } from "./parts.jsx";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* ==========================================================================
    The management landing page.
@@ -36,10 +37,10 @@ const DISTRIBUTIONS = [
 ];
 
 export default function ManagementView({ ds, rows, summary, plan, modules, scope, onExport, periodLabel }) {
-  const [workloadDim, setWorkloadDim] = useState("factory");
-  const [distKey, setDistKey] = useState("productGroup");
+  const [workloadDim, setWorkloadDim] = useSticky("dash-mgmt", "workloadDim", "factory");
+  const [distKey, setDistKey] = useSticky("dash-mgmt", "distKey", "productGroup");
   const [growth, setGrowth] = useState(null);
-  const [growthMetric, setGrowthMetric] = useState("poCount");
+  const [growthMetric, setGrowthMetric] = useSticky("dash-mgmt", "growthMetric", "poCount");
 
   const tiles = useMemo(() => managementTiles(ds, rows, summary, scope), [ds, rows, summary, scope]);
   const block = useMemo(() => todayBlock(rows, 5), [rows]);

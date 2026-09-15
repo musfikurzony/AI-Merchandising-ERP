@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { getOrdersApproachingCrd, getOrdersOverdueCrd, getOrdersWithCrdAttention, getOrdersNoRecentUpdate, getCrdRevisionCounts, groupByDimension } from "../../lib/followUpApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { useSticky, useStickyScope } from "../../lib/viewState.js";
 
 /* Relocated here from Follow-up Report, per explicit instruction --
    Follow-up Report is the printable, Label-grouped milestone document
@@ -25,8 +26,8 @@ function OrderLink({ o }) {
 
 export default function CrdChangeMonitoring() {
   const { dateFormat } = useOutletContext();
-  const [section, setSection] = useState("approaching");
-  const [groupBy, setGroupBy] = useState("factory");
+  const [section, setSection] = useSticky("crd", "section", "approaching");
+  const [groupBy, setGroupBy] = useSticky("crd", "groupBy", "factory");
   const [data, setData] = useState({ approaching: [], overdue: [], attention: [], stale: [], revised: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { merchandiserTiles, todayBlock, onTrackPos, groupRowsByType } from "../../lib/dashboardApi.js";
 import { NOTIFICATION_TYPES, SEVERITY } from "../../lib/notificationsApi.js";
 import { KpiStrip, MyActions, TodayBlock, ActionTable, Pager, QuickActions, SectionHead } from "./parts.jsx";
+import { useSticky, useStickyScope, useEffectSkipFirst } from "../../lib/viewState.js";
 
 /* ==========================================================================
    The merchandiser's landing page.
@@ -16,9 +17,9 @@ import { KpiStrip, MyActions, TodayBlock, ActionTable, Pager, QuickActions, Sect
    this page decides what "overdue" means. */
 
 export default function MerchandiserView({ ds, rows, summary, plan, dateFormat, modules, scope, onExport, periodLabel }) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [typeFilter, setTypeFilter] = useState(null);
+  const [page, setPage] = useSticky("dash-merch", "page", 1);
+  const [pageSize, setPageSize] = useSticky("dash-merch", "pageSize", 25);
+  const [typeFilter, setTypeFilter] = useSticky("dash-merch", "typeFilter", null);
 
   const tiles = useMemo(() => merchandiserTiles(ds, rows, summary, scope), [ds, rows, summary, scope]);
   const block = useMemo(() => todayBlock(rows, 6), [rows]);
@@ -34,7 +35,11 @@ export default function MerchandiserView({ ds, rows, summary, plan, dateFormat, 
       .sort((a, b) => a.severityRank - b.severityRank || (b.daysDelayed || 0) - (a.daysDelayed || 0));
   }, [rows, byType, typeFilter]);
 
-  useEffect(() => { setPage(1); }, [typeFilter, pageSize, rows]);
+  /* Skips the FIRST run. "Go back to page 1 when the filter changes" is what
+     this rule always meant; firing it on mount as well would overwrite the
+     page number restored from where the user left off, so the restore would
+     appear to work for every field except this one. */
+  useEffectSkipFirst(() => { setPage(1); }, [typeFilter, pageSize, rows]);
 
   const pageCount = Math.max(1, Math.ceil(actionRows.length / pageSize));
   const current = Math.min(page, pageCount);
