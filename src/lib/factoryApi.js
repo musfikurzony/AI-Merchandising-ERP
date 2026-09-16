@@ -35,7 +35,80 @@ export async function listMyOrders() {
     getRetentionMonths(),
   ]);
   if (ordersRes.error) throw ordersRes.error;
-  return ordersRes.data.filter(o => isVisibleByRetention(o.status, o.invoiced_at, retentionMonths));
+  const rows = ordersRes.data.filter(o => isVisibleByRetention(o.status, o.invoiced_at, retentionMonths));
+  return enrich(rows);
+}
+
+/* --------------------------------------------------------------------------
+   Style, colour and merchandiser — which the view does not serve.
+   --------------------------------------------------------------------------
+   Opening a PO showed three columns: quantity, date, status. No style number,
+   no colour. `factory_portal_orders` simply does not carry them, and the
+   portal was written assuming it did, so those columns vanished rather than
+   appearing empty — correct behaviour for the code, useless for the person.
+   A factory books by PO and then works by style and colour; a PO you cannot
+   open into its styles is a number, not a work list.
+
+   The view stays the source of WHICH ROWS this factory may see — that is the
+   part that must not be worked around, and nothing here widens it: every id
+   used below came out of the view first. What is added is the descriptive
+   detail for exactly those ids.
+
+   Both fetches are allowed to fail. A factory account that cannot read
+   `orders` at all is a perfectly reasonable configuration, and the right
+   response to it is a portal with fewer columns, not an error page. Failure
+   is silent by design, and `availableColumns()` on the screen then simply
+   does not offer the column. */
+async function enrich(rows) {
+  if (!rows.length) return rows;
+  const ids = rows.map(r => r.id).filter(Boolean);
+  if (!ids.length) return rows;
+
+  const [detail, colours] = await Promise.all([
+    chunked(ids, chunk => supabase.from("orders")
+      .select("id, po_prefix, po_number, style, primary_merchandiser_id, profiles!orders_primary_merchandiser_id_fkey(full_name)")
+      .in("id", chunk)),
+    chunked(ids, chunk => supabase.from("order_color_ways")
+      .select("order_id, name, qty").in("order_id", chunk)),
+  ]);
+
+  const byId = new Map((detail || []).map(d => [d.id, d]));
+  const coloursByOrder = new Map();
+  for (const c of colours || []) {
+    if (!coloursByOrder.has(c.order_id)) coloursByOrder.set(c.order_id, []);
+    coloursByOrder.get(c.order_id).push(c);
+  }
+
+  return rows.map(r => {
+    const d = byId.get(r.id);
+    const cw = coloursByOrder.get(r.id) || [];
+    return {
+      ...r,
+      /* Only fill what is missing. If the view ever gains these columns, it
+         wins — it is the narrower, deliberately-scoped source. */
+      po_prefix: r.po_prefix ?? d?.po_prefix ?? null,
+      po_number: r.po_number ?? d?.po_number ?? null,
+      style: r.style ?? d?.style ?? null,
+      merchandiser_name: r.merchandiser_name ?? d?.profiles?.full_name ?? null,
+      /* A style row can span several colours. Kept as a list rather than
+         flattened to one name: "BLACK, NAVY, KHAKI" in a Colour cell is a
+         lie about the shape of the data, and the screen can expand it. */
+      colour_ways: cw.map(c => ({ name: c.name, qty: c.qty })),
+      color: r.color ?? (cw.length === 1 ? cw[0].name : null),
+    };
+  });
+}
+
+/* PostgREST puts .in() in the URL, so a long list is a request that never
+   arrives. Same 150 ceiling the reporting fetches use. */
+async function chunked(ids, run) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await run(ids.slice(i, i + 150));
+    if (error) return null;      // see enrich(): fewer columns, never an error page
+    out.push(...(data || []));
+  }
+  return out;
 }
 
 // One insert per order -- exactly what the backend already expects (each

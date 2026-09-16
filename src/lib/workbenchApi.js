@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabaseClient.js";
 import { canViewFob } from "./ordersApi.js";
+import { lensOrders } from "./viewerLens.js";
 
 /* Real data layer behind the v13-faithful Workbench UI. The milestone
    catalog (MILESTONE_COLS in the prototype) now lives in the database as
@@ -29,7 +30,7 @@ export async function listWorkbenchOrders() {
     .neq("status", "cancelled") // Workbench and Follow-up Report are active work queues -- cancelled orders are excluded, but stay fully intact for reporting elsewhere
     .eq("is_deleted", false);
   if (error) throw error;
-  return data;
+  return lensOrders(data);
 }
 
 export async function listColorWays(orderIds) {

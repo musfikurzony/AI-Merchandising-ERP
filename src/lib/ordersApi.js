@@ -7,6 +7,7 @@ import { hasPermission } from "../lib/permissions.js";
    runs. */
 import { fetchAllByIds } from "./supabaseFetch.js";
 import { byEffectiveEtd } from "./deliveryDate.js";
+import { lensOrder, lensOrders, lensNested } from "./viewerLens.js";
 
 /* Single shared query layer for orders -- per explicit instruction, "avoid
    duplicating order logic separately in every module." Dashboard, Orders,
@@ -50,7 +51,7 @@ export async function listOrders(filters = {}) {
 
   const { data, error } = await query.order("etd");
   if (error) throw error;
-  return data;
+  return lensOrders(data);
 }
 
 /* `etd_buffer_days` arrives with migration 39. Until that has run the column
@@ -78,14 +79,14 @@ export async function getOrder(id) {
   if (bufferColumnExists !== false) {
     const { data, error } = await supabase.from("orders")
       .select(`${base}, etd_buffer_days`).eq("id", id).single();
-    if (!error) { bufferColumnExists = true; return data; }
+    if (!error) { bufferColumnExists = true; return lensOrder(data); }
     if (!isMissingColumn(error, "etd_buffer_days")) throw error;
     bufferColumnExists = false;
   }
 
   const { data, error } = await supabase.from("orders").select(base).eq("id", id).single();
   if (error) throw error;
-  return data;
+  return lensOrder(data);
 }
 
 /* True only once a successful read has proved the column is there. The Edit
@@ -137,7 +138,7 @@ export async function getOrdersNeedingFactory() {
     .select("id, po_prefix, po_number, style, etd, customers(name)")
     .is("factory_code", null).eq("is_deleted", false).order("etd");
   if (error) throw error;
-  return data;
+  return lensOrders(data);
 }
 
 /* "CRD attention" = orders whose MOST RECENT crd_updates entry is
@@ -158,7 +159,7 @@ export async function getOrdersWithCrdAttention() {
     seen.add(row.order_id);
     if (row.classification === "critical" || row.classification === "warning") latestPerOrder.push(row);
   }
-  return latestPerOrder;
+  return lensNested(latestPerOrder);
 }
 export async function getFilterOptions() {
   const [customers, productGroups, factories, labels, divisions, businessUnits, merchandisers] = await Promise.all([
@@ -414,7 +415,7 @@ export async function getMyOrders() {
   const combined = [];
   for (const o of primary.data) { if (!seen.has(o.id)) { seen.add(o.id); combined.push(o); } }
   for (const row of shared.data) { const o = row.orders; if (o && !seen.has(o.id) && !o.is_deleted) { seen.add(o.id); combined.push(o); } }
-  return combined.sort(byEffectiveEtd);
+  return lensOrders(combined).sort(byEffectiveEtd);
 }
 
 /* Managing who else (besides the primary merchandiser) can see and act on

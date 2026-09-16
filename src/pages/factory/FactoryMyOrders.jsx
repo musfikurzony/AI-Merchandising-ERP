@@ -224,6 +224,16 @@ export default function FactoryMyOrders() {
   }
 
   const totalQty = filtered.reduce((s, g) => s + (g.qty || 0), 0);
+  const allQty = groups.reduce((s, g) => s + (g.qty || 0), 0);
+  const styleTotal = groups.reduce((s, g) => s + (g.styleCount || g.lineCount), 0);
+  /* The soonest date still ahead. A PO already past its date is not the
+     "next" one — showing it there would make a card that is meant to answer
+     "what is coming up" answer "what is late" instead. */
+  const nextDelivery = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = groups.map(g => g.etd).filter(d => d && d >= today).sort();
+    return upcoming[0] || null;
+  }, [groups]);
   const filtersOn = Object.keys(BLANK_FILTERS).some(k => filters[k] !== BLANK_FILTERS[k]);
 
   /* Columns are counted rather than hardcoded so the "nothing matches" row
@@ -250,6 +260,27 @@ export default function FactoryMyOrders() {
 
       {error && <p style={{ color: "#B91C1C" }}>{error}</p>}
       {confirmation && <p style={{ color: "#15803D" }}>CRD submitted for {confirmation} PO{confirmation !== 1 ? "s" : ""}.</p>}
+
+      {!loading && rows.length > 0 && (
+        <div className="fp-cards">
+          <div className="fp-card">
+            <span className="fp-card-n">{groups.length}</span>
+            <span className="fp-card-l">Purchase orders</span>
+          </div>
+          <div className="fp-card">
+            <span className="fp-card-n">{allQty.toLocaleString()}</span>
+            <span className="fp-card-l">Pieces booked</span>
+          </div>
+          <div className="fp-card">
+            <span className="fp-card-n">{nextDelivery || "—"}</span>
+            <span className="fp-card-l">Next delivery</span>
+          </div>
+          <div className="fp-card">
+            <span className="fp-card-n">{styleTotal}</span>
+            <span className="fp-card-l">Styles in hand</span>
+          </div>
+        </div>
+      )}
 
       {loading ? <p>Loading...</p> : rows.length === 0 ? (
         <p style={{ color: "#6B7280" }}>No orders assigned to your factory yet. If you were just linked to a factory, this will update automatically — no need to log out and back in.</p>
@@ -306,8 +337,8 @@ export default function FactoryMyOrders() {
                           ? <>{g.etdRange.from} – {g.etdRange.to}<MixedTag>mixed</MixedTag></>
                           : (g.etd || "—")}
                       </td>
-                      <td>{g.qty != null ? g.qty.toLocaleString() : "—"}</td>
-                      <td>{g.styleCount || g.lineCount}</td>
+                      <td className="num">{g.qty != null ? g.qty.toLocaleString() : "—"}</td>
+                      <td className="num">{g.styleCount || g.lineCount}</td>
                       {cols.customer && <td>{g.customer || "—"}{g.customerMixed && <MixedTag>mixed</MixedTag>}</td>}
                       {cols.productGroup && <td>{g.productGroup || "—"}{g.productGroupMixed && <MixedTag>mixed</MixedTag>}</td>}
                       {cols.merchandiser && <td>{g.merchandiser || "—"}{g.merchandiserMixed && <MixedTag>mixed</MixedTag>}</td>}
@@ -329,16 +360,38 @@ export default function FactoryMyOrders() {
                               </tr>
                             </thead>
                             <tbody>
-                              {g.lines.map(l => (
-                                <tr key={l.id}>
-                                  {cols.style && <td>{get(l, "style") || "—"}</td>}
-                                  {cols.colour && <td>{get(l, "colour") || "—"}</td>}
-                                  <td>{get(l, "qty") != null ? Number(get(l, "qty")).toLocaleString() : "—"}</td>
-                                  <td>{get(l, "etd") || "—"}</td>
-                                  {cols.crd && <td>{get(l, "crd") || "—"}</td>}
-                                  <td>{get(l, "status") || "—"}</td>
-                                </tr>
-                              ))}
+                              {g.lines.flatMap(l => {
+                                /* A style line may carry several colours. It is
+                                   expanded into one row per colour when it does,
+                                   because that is the level the factory cuts and
+                                   packs at — and the quantities are the colour's
+                                   own, never the style total repeated down the
+                                   rows, which would read as four times the work.
+                                   A line with no colour breakdown stays one row
+                                   rather than inventing a colour for it. */
+                                const ways = Array.isArray(l.colour_ways) ? l.colour_ways : [];
+                                const style = get(l, "style") || "—";
+                                if (ways.length <= 1) return [(
+                                  <tr key={l.id}>
+                                    {cols.style && <td>{style}</td>}
+                                    {cols.colour && <td>{ways[0]?.name || get(l, "colour") || "—"}</td>}
+                                    <td className="num">{get(l, "qty") != null ? Number(get(l, "qty")).toLocaleString() : "—"}</td>
+                                    <td>{get(l, "etd") || "—"}</td>
+                                    {cols.crd && <td>{get(l, "crd") || "—"}</td>}
+                                    <td>{get(l, "status") || "—"}</td>
+                                  </tr>
+                                )];
+                                return ways.map((w, i) => (
+                                  <tr key={`${l.id}:${w.name}`}>
+                                    {cols.style && <td>{i === 0 ? style : ""}</td>}
+                                    {cols.colour && <td>{w.name || "—"}</td>}
+                                    <td className="num">{w.qty != null ? Number(w.qty).toLocaleString() : "—"}</td>
+                                    <td>{i === 0 ? (get(l, "etd") || "—") : ""}</td>
+                                    {cols.crd && <td>{i === 0 ? (get(l, "crd") || "—") : ""}</td>}
+                                    <td>{i === 0 ? (get(l, "status") || "—") : ""}</td>
+                                  </tr>
+                                ));
+                              })}
                             </tbody>
                           </table>
                         </td>

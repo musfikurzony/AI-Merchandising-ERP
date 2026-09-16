@@ -176,9 +176,13 @@ export function groupByPo(rows) {
    produce a Merchandiser column full of dashes. */
 export function availableColumns(rows) {
   const has = field => (rows || []).some(r => get(r, field) !== null);
+  /* A colour column is warranted by a colour BREAKDOWN as well as by a
+     colour field: the portal's rows come from a view that carries neither,
+     and the breakdown is where the colour actually lives. */
+  const hasWays = (rows || []).some(r => Array.isArray(r.colour_ways) && r.colour_ways.length > 0);
   return {
     style: has("style"),
-    colour: has("colour"),
+    colour: has("colour") || hasWays,
     merchandiser: has("merchandiser"),
     productGroup: has("productGroup"),
     customer: has("customer"),

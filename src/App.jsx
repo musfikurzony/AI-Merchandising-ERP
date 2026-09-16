@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useSession } from "./lib/useSession.js";
 import { ROLE_LANDING_ROUTE } from "./lib/permissions.js";
-import { isFactoryUser } from "./lib/factoryUser.js";
 import { supabase } from "./lib/supabaseClient.js";
+import { setViewer } from "./lib/viewerLens.js";
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
 import UserManagement from "./pages/admin/UserManagement.jsx";
 import RoleManagement from "./pages/admin/RoleManagement.jsx";
@@ -120,7 +120,10 @@ function ForcePasswordChange({ userId }) {
 /* Shown only on the layouts that genuinely have no sign-out of their own. */
 function FloatingSignOut({ signOut }) {
   const { pathname } = useLocation();
-  const needsIt = pathname.startsWith("/admin") || pathname.startsWith("/factory");
+  /* /factory moved inside ErpShell in v96, and the shell carries its own
+     Sign Out in the sidebar footer — rendering this one there too would
+     overlap the header. Only /admin still has no header of its own. */
+  const needsIt = pathname.startsWith("/admin");
   if (!needsIt) return null;
   return (
     <button onClick={signOut} className="btn-outline" style={{ position: "fixed", top: 12, right: 12, zIndex: 50 }}>
@@ -132,44 +135,16 @@ function FloatingSignOut({ signOut }) {
 export default function App() {
   const { session, profile, loading, signIn, signOut } = useSession();
 
+  /* Set before anything renders, because the data layer reads it. Done here
+     rather than in useSession so it is impossible to have a route tree
+     mounted against a profile the lens has not been told about. */
+  setViewer(profile);
+
   if (loading) return <div style={{ padding: 40 }}>Loading...</div>;
   if (!session) return <LoginScreen signIn={signIn} />;
   if (!profile) return <div style={{ padding: 40 }}>Your account exists but has no profile row -- contact an Administrator.</div>;
   if (!profile.is_active) return <div style={{ padding: 40 }}>Your account is deactivated -- contact an Administrator.</div>;
   if (profile.must_change_password) return <ForcePasswordChange userId={profile.id} />;
-
-  /* ----------------------------------------------------------------------
-     An outside user never gets the internal route tree built at all.
-     ----------------------------------------------------------------------
-     Not "guarded", not "redirected" — not BUILT. Every other approach leaves
-     the internal screens one mis-ticked permission box, one stale tab or one
-     pasted URL away from rendering, and the thing they render is the order
-     book with its costs and its real delivery dates.
-
-     Note there is no RequireModule around the portal here. A factory user IS
-     a factory user; making their only screen depend on a checkbox someone
-     could untick would lock them out of the single thing they are for, and
-     the fallback would point back at /factory and loop. What the grid can
-     still do is take the CRD submit away from them — that check lives on the
-     button, where it belongs, not on the door.
-
-     This is a browser-side guard. It closes the accidental door. It is not
-     the boundary; see lib/factoryUser.js. */
-  if (isFactoryUser(profile)) {
-    return (
-      <BrowserRouter>
-        <ErrorBoundary>
-          <Routes>
-            <Route path="/factory" element={<FactoryPortalLayout profile={profile} />}>
-              <Route index element={<FactoryMyOrders profile={profile} />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/factory" replace />} />
-          </Routes>
-        </ErrorBoundary>
-        <FloatingSignOut signOut={signOut} />
-      </BrowserRouter>
-    );
-  }
 
   const landing = ROLE_LANDING_ROUTE[profile.role] || "/dashboard";
 
@@ -243,6 +218,24 @@ export default function App() {
               ERP role already has. */}
           <Route path="/shipping/:shipmentId?" element={<RequireModule module="shipping_portal" fallback={landing}><ShippingLanding profile={profile} /></RequireModule>} />
           <Route path="/shipping-reports" element={<RequireModule module="shipping_portal" fallback={landing}><ShippingReports /></RequireModule>} />
+          {/* The Factory Portal lives INSIDE the shell now.
+
+              v95 gave it its own bare layout and locked factory users out of
+              everything else, on the reasoning that an outside company should
+              not be inside the ERP. The owner corrected that: factory people
+              are sometimes given the Workbench deliberately, so they can
+              update their own milestones, and taking that away to hide a date
+              removes a working practice to solve a different problem.
+
+              So access goes back to the permission grid, the same as for
+              anyone else — and the DATE is what gets protected instead, in
+              lib/viewerLens.js, on every screen rather than only this one.
+              Putting the portal in the shell also gives it the sidebar,
+              header and search every other screen has, which is the other
+              half of what was asked for. */}
+          <Route path="/factory" element={<RequireModule module="factory_portal" fallback={landing}><FactoryPortalLayout profile={profile} /></RequireModule>}>
+            <Route index element={<FactoryMyOrders profile={profile} />} />
+          </Route>
         </Route>
 
         <Route path="/admin" element={<RequireModule module="administration" fallback={landing}><AdminLayout homeTo={landing} /></RequireModule>}>
@@ -253,12 +246,6 @@ export default function App() {
           <Route path="audit" element={<AuditTrail />} />
         </Route>
 
-        {/* Kept for an INTERNAL user who has been granted the factory portal
-            — a manager looking at what a factory sees. A factory user never
-            reaches this route: their tree was returned above. */}
-        <Route path="/factory" element={<RequireModule module="factory_portal" fallback={landing}><FactoryPortalLayout profile={profile} /></RequireModule>}>
-          <Route index element={<FactoryMyOrders />} />
-        </Route>
         <Route path="*" element={<Navigate to={landing} replace />} />
       </Routes>
       </ErrorBoundary>

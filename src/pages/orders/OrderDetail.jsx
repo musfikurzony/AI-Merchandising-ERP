@@ -11,6 +11,7 @@ import DraftNotice from "../../components/DraftNotice.jsx";
 import { useFormDraft, hasDraft, clearDraft } from "../../lib/formDraft.js";
 import { getColumnPrefs } from "../../lib/workbenchApi.js";
 import { hasModulePermission } from "../../lib/permissions.js";
+import { canSeeInternalDateFields } from "../../lib/viewerLens.js";
 import { getShipmentSummaryForOrder, getShipmentLinesForOrder } from "../../lib/shipmentApi.js";
 
 /* Real port of v13's OrderDetail -- same seven tabs, same Working Sheet,
@@ -283,7 +284,7 @@ function OverviewTab({ order, colorWays, milestones, dateFormat }) {
     ["Division", order.divisions?.name || "—"], ["Business Unit", order.business_units?.name || "—"],
     ["Customer", order.customers?.name || "—"], ["Season", order.season || "—"],
     ["Order Rcv Date", fmtCompact(order.order_rcv_date, dateFormat)], ["ETD", fmtCompact(order.etd, dateFormat)],
-    ["Rev ETD", fmtCompact(order.revised_etd, dateFormat)],
+    ...(canSeeInternalDateFields() ? [["Rev ETD", fmtCompact(order.revised_etd, dateFormat)]] : []),
     /* Shown only when a buffer is actually set. An "ETD buffer: none" line on
        every order would be noise on the overwhelming majority of them, and
        the one place it must be visible is the order that has one. */
@@ -630,7 +631,7 @@ function WorkingSheet({ order, milestones, milestoneTypes, dateFormat, onClose }
             <Field label="Ordered Quantity" value={fmtNum(order.qty)} />
             <Field label="FOB" value={"fob" in order ? fmtFob(order.fob) : "—"} />
             <Field label="ETD" value={fmtCompact(order.etd, dateFormat)} />
-            <Field label="Rev ETD" value={order.revised_etd ? fmtCompact(order.revised_etd, dateFormat) : "—"} />
+            {canSeeInternalDateFields() && <Field label="Rev ETD" value={order.revised_etd ? fmtCompact(order.revised_etd, dateFormat) : "—"} />}
             <Field label="Shipment Status" value={order.status === "shipped" ? "Shipped" : "Pending"} />
             <Field label="Merchandiser" value={order.profiles?.full_name} />
           </div>
@@ -815,7 +816,14 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
   const showFob = "fob" in order;
   const revisedEtdChanged = form.revised_etd !== (order.revised_etd || "");
   /* Proved by an actual successful read, not assumed from a version number. */
-  const bufferReady = etdBufferAvailable();
+  /* Proved by an actual successful read, not assumed from a version number —
+     AND never for an outside viewer. A factory account can legitimately hold
+     the Orders permission now (v96), so this is live code, not a guard on an
+     unreachable screen: showing a factory "you are being shown a date 13 days
+     early" tells them precisely how much slack to take back, and letting them
+     SET one would be worse still. */
+  const internalDates = canSeeInternalDateFields();
+  const bufferReady = etdBufferAvailable() && internalDates;
 
   async function refreshOptions() { setOptions(await getFilterOptions()); }
   useEffect(() => { refreshOptions(); }, []);
@@ -884,7 +892,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
         {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label className="edit-field">ETD<input type="date" value={form.etd} onChange={e => set("etd", e.target.value)} /></label>
-          <label className="edit-field">Revised ETD<input type="date" value={form.revised_etd} onChange={e => set("revised_etd", e.target.value)} /></label>
+          {internalDates && <label className="edit-field">Revised ETD<input type="date" value={form.revised_etd} onChange={e => set("revised_etd", e.target.value)} /></label>}
           {/* Reason prompt for Revised ETD specifically -- flagging honestly:
               this wasn't literally in v13's EditOrderModal source (checked
               directly), but matches the same "reason required" pattern v13

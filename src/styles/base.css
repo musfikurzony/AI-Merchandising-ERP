@@ -1312,3 +1312,56 @@ table.db-action-table td.mono { font-family: 'IBM Plex Mono', ui-monospace, mono
   cursor: pointer;
   padding: 0 2px;
 }
+
+/* --------------------------------------------------------------------------
+   FACTORY PORTAL (v96)
+   --------------------------------------------------------------------------
+   The portal moved inside ErpShell, so it inherits the sidebar, header and
+   search. What it still needed was its own chrome: a heading that says what
+   the screen is, a badge naming the factory, and four figures a supplier
+   actually opens the page to find. */
+.fp-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.fp-title { margin: 0; font-size: 20px; font-weight: 700; color: #16302E; }
+.fp-sub { margin: 3px 0 0; font-size: 12.5px; color: #6B7280; }
+
+.fp-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 7px 13px;
+  border-radius: 10px;
+  background: #E0F2F1;
+  border: 1px solid #B2DFDB;
+}
+.fp-badge-lbl { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: #3F7C79; }
+.fp-badge-code { font-size: 16px; font-weight: 700; color: #1F5A57; }
+
+.fp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+.fp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 15px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+.fp-card-n { font-size: 21px; font-weight: 700; color: #16302E; line-height: 1.15; }
+.fp-card-l { font-size: 11.5px; color: #6B7280; }
+
+/* Quantities read as quantities: right-aligned and tabular, so a column of
+   them lines up on the thousands separator instead of drifting. */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

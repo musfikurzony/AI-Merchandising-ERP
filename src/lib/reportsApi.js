@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient.js";
 import { canViewFob, getOrderColorWaysForOrders } from "./ordersApi.js";
 import { fetchAllPaged, fetchAllByIds, countRows, countByIds, reconcile, integrityOf } from "./supabaseFetch.js";
 import { effectiveEtd, etdInRange } from "./deliveryDate.js";
+import { lensOrders } from "./viewerLens.js";
 
 /* Reports Center data layer, Phase 1.
 
@@ -146,7 +147,11 @@ async function fetchReportColorWays(orderIds) {
    pattern kpiApi.js already uses, reused here rather than reinvented. */
 export async function buildReportDataset(filters = {}) {
   const ordersRes = await fetchReportOrders(filters);
-  let orders = ordersRes.rows;
+  /* Before any grouping, bucketing or date filtering runs. A factory viewer
+     must never have the real date reach a rule, not even one that only sorts
+     by it — and applying it here means every report built on this dataset
+     inherits it without having to remember. */
+  let orders = lensOrders(ordersRes.rows);
   const orderIds = orders.map(o => o.id);
 
   const [linesRes, crdRes, colorRes] = await Promise.all([
