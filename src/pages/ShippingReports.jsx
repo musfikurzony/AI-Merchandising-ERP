@@ -142,8 +142,8 @@ export default function ShippingReports() {
     });
   }
 
-  const open = result ? computeOpenOrders(result.orders, result.shipmentSummaryByOrder) : null;
-  const shipped = result ? computeShippedOrders(result.orders, result.shipmentSummaryByOrder) : null;
+  const open = result ? computeOpenOrders(result.orders, result.shipmentSummaryByOrder, result.colorWaysByOrder) : null;
+  const shipped = result ? computeShippedOrders(result.orders, result.shipmentSummaryByOrder, result.colorWaysByOrder) : null;
   const invoiceCount = result ? new Set(result.rows.map(r => r.invoiceNumber).filter(Boolean)).size : 0;
   const poCount = result ? new Set(result.rows.map(r => r.po)).size : 0;
   /* The one bottom-line total for this report -- rendered as the table's

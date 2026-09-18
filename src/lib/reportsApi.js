@@ -3,6 +3,7 @@ import { canViewFob, getOrderColorWaysForOrders } from "./ordersApi.js";
 import { fetchAllPaged, fetchAllByIds, countRows, countByIds, reconcile, integrityOf } from "./supabaseFetch.js";
 import { effectiveEtd, etdInRange } from "./deliveryDate.js";
 import { lensOrders } from "./viewerLens.js";
+import { orderValue as priceOrder } from "./pricing.js";
 
 /* Reports Center data layer, Phase 1.
 
@@ -226,31 +227,43 @@ export async function buildReportDataset(filters = {}) {
    shipmentLines array, for the same no-double-counting reason explained
    above. */
 
-export function orderMetrics(order, shipmentSummaryByOrder) {
+export function orderMetrics(order, shipmentSummaryByOrder, colorWaysByOrder) {
   const summary = shipmentSummaryByOrder.get(order.id);
   const orderedQty = order.qty || 0;
   const shippedQty = summary?.shippedQty || 0;
   const balanceQty = orderedQty - shippedQty;
-  const orderValue = "fob" in order && order.fob != null ? orderedQty * order.fob : null;
-  const shippedValue = "fob" in order && order.fob != null ? shippedQty * order.fob : null;
+  /* Value goes through lib/pricing.js so that a colour carrying its own FOB —
+     the expensive-dye case — is counted at its own price rather than at the
+     style's. With no override, which is almost every order, this is exactly
+     the old `qty * fob` and costs nothing extra.
+
+     colorWaysByOrder is optional: callers that do not have it get style
+     pricing, which is the correct answer whenever no override exists and a
+     safe one when the caller simply has not loaded colours. */
+  const cws = colorWaysByOrder?.get?.(order.id) || null;
+  const priced = priceOrder(order, cws || []);
+  const orderValue = priced.value;
+  const shippedValue = orderValue !== null && orderedQty
+    ? (orderValue / orderedQty) * shippedQty
+    : ("fob" in order && order.fob != null ? shippedQty * order.fob : null);
   return { orderedQty, shippedQty, balanceQty, shipmentPct: orderedQty ? Math.round((shippedQty / orderedQty) * 100) : 0, orderValue, shippedValue, hasPartialShipments: (summary?.lineCount || 0) > 1 };
 }
 
-export function computeOpenOrders(orders, shipmentSummaryByOrder) {
+export function computeOpenOrders(orders, shipmentSummaryByOrder, colorWaysByOrder) {
   const open = orders.filter(o => o.status !== "shipped" && o.status !== "cancelled");
-  const totals = open.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder); acc.qty += m.orderedQty; acc.value += m.orderValue || 0; return acc; }, { qty: 0, value: 0 });
+  const totals = open.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder, colorWaysByOrder); acc.qty += m.orderedQty; acc.value += m.orderValue || 0; return acc; }, { qty: 0, value: 0 });
   return { rows: open, poCount: open.length, ...totals };
 }
 
-export function computeShippedOrders(orders, shipmentSummaryByOrder) {
+export function computeShippedOrders(orders, shipmentSummaryByOrder, colorWaysByOrder) {
   const shipped = orders.filter(o => o.status === "shipped");
-  const totals = shipped.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder); acc.qty += m.shippedQty; acc.value += m.shippedValue || 0; return acc; }, { qty: 0, value: 0 });
+  const totals = shipped.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder, colorWaysByOrder); acc.qty += m.shippedQty; acc.value += m.shippedValue || 0; return acc; }, { qty: 0, value: 0 });
   return { rows: shipped, poCount: shipped.length, ...totals };
 }
 
-export function computeTotalBusiness(orders, shipmentSummaryByOrder) {
+export function computeTotalBusiness(orders, shipmentSummaryByOrder, colorWaysByOrder) {
   const active = orders.filter(o => o.status !== "cancelled");
-  const totals = active.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder); acc.qty += m.orderedQty; acc.value += m.orderValue || 0; return acc; }, { qty: 0, value: 0 });
+  const totals = active.reduce((acc, o) => { const m = orderMetrics(o, shipmentSummaryByOrder, colorWaysByOrder); acc.qty += m.orderedQty; acc.value += m.orderValue || 0; return acc; }, { qty: 0, value: 0 });
   return { rows: active, poCount: active.length, ...totals };
 }
 

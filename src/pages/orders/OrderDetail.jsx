@@ -12,6 +12,8 @@ import { useFormDraft, hasDraft, clearDraft } from "../../lib/formDraft.js";
 import { getColumnPrefs } from "../../lib/workbenchApi.js";
 import { hasModulePermission } from "../../lib/permissions.js";
 import { canSeeInternalDateFields } from "../../lib/viewerLens.js";
+import PricingPanel from "./PricingPanel.jsx";
+import { orderValue as priceOrder, effectiveFob } from "../../lib/pricing.js";
 import { getShipmentSummaryForOrder, getShipmentLinesForOrder } from "../../lib/shipmentApi.js";
 
 /* Real port of v13's OrderDetail -- same seven tabs, same Working Sheet,
@@ -46,6 +48,11 @@ const TABS = [
   { key: "overview", label: "Overview" },
   { key: "timeline", label: "Timeline View" },
   { key: "factory", label: "Factory Assignment" },
+  /* Its own tab rather than a block inside Overview, because it shows the
+     WHOLE PO — every style at its own price — while every other tab shows
+     this one style. Mixing the two scopes on one screen is how "FOB is per
+     PO" became a reasonable thing to believe in the first place. */
+  { key: "pricing", label: "Pricing" },
   { key: "tna", label: "Dynamic T&A" },
   { key: "samples", label: "Sample Tracking" },
   { key: "shipment", label: "Shipment Follow-up" },
@@ -69,6 +76,9 @@ export default function OrderDetail() {
   /* Shown on the page, not in the modal: the modal closes on save, and a
      notice the user never gets to read is the same as no notice. */
   const [poWideNote, setPoWideNote] = useState(null);
+  /* Null while unknown, so the Pricing panel renders read-only rather than
+     briefly offering inputs that a save would then refuse. */
+  const [canEditOrders, setCanEditOrders] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [order, setOrder] = useState(null);
   const [colorWays, setColorWays] = useState([]);
@@ -129,6 +139,9 @@ export default function OrderDetail() {
     setLoading(false);
   }
   useEffect(() => { refresh(); }, [id]);
+  useEffect(() => {
+    hasModulePermission("orders", "edit").then(setCanEditOrders).catch(() => setCanEditOrders(false));
+  }, []);
 
   if (loading) return <div style={{ padding: 32 }}>Loading...</div>;
   if (error) return <div style={{ padding: 32, color: "#B91C1C" }}>{error}</div>;
@@ -184,6 +197,7 @@ export default function OrderDetail() {
       {tab === "tna" && <TnaTab order={order} colorWays={colorWays} milestones={milestones} milestoneTypes={milestoneTypes.filter(mt => colPrefs?.[mt.key])} onSaved={refresh} highlightMilestone={highlightMilestone} />}
       {tab === "samples" && <SamplesTab order={order} colorWays={colorWays} samples={samples} milestones={milestones} highlightMilestone={highlightMilestone} />}
       {tab === "shipment" && <ShipmentTab order={order} colorWays={colorWays} shipmentSummary={shipmentSummary} shipmentLines={shipmentLines} dateFormat={dateFormat} />}
+      {tab === "pricing" && <PricingPanel order={order} canEdit={canEditOrders} onChanged={refresh} />}
       {tab === "activity" && <ActivityTab auditLog={auditLog} />}
 
       {showSheet && <WorkingSheet order={order} milestones={milestones} milestoneTypes={milestoneTypes} dateFormat={dateFormat} onClose={() => setShowSheet(false)} />}
@@ -278,8 +292,22 @@ function OverviewTab({ order, colorWays, milestones, dateFormat }) {
   const leadTime = leadTimeDays(order.order_rcv_date, order.etd);
   const fields = [
     ["PO Prefix", order.po_prefix], ["PO #", order.po_number], ["Style", order.style],
-    ["Ordered Quantity", fmtNum(order.qty)], ["FOB", "fob" in order ? fmtFob(order.fob) : "—"],
-    ["Order Value", "fob" in order && order.fob != null ? fmtMoney(order.qty * order.fob) : "—"],
+    ["Ordered Quantity", fmtNum(order.qty)],
+    /* The STYLE's price, and marked as such. Two styles of one PO can hold
+       two prices — that is the normal case, not an exception — and a bare
+       "FOB" on a screen titled with the PO is what made them look like one
+       number. A colour carrying its own price shows as "mixed"; the Pricing
+       tab is where the detail lives. */
+    ["FOB (this style)", (() => {
+      if (!("fob" in order)) return "—";
+      const eff = effectiveFob(order, colorWays);
+      if (eff.fob === null) return "—";
+      return eff.mixed ? `${fmtFob(eff.fob)} avg — colours differ` : fmtFob(eff.fob);
+    })()],
+    ["Order Value", (() => {
+      const { value } = priceOrder(order, colorWays);
+      return value === null ? "—" : fmtMoney(value);
+    })()],
     ["Product Group", order.product_groups?.name || "—"], ["Label", order.labels?.name || "—"],
     ["Division", order.divisions?.name || "—"], ["Business Unit", order.business_units?.name || "—"],
     ["Customer", order.customers?.name || "—"], ["Season", order.season || "—"],
@@ -629,7 +657,7 @@ function WorkingSheet({ order, milestones, milestoneTypes, dateFormat, onClose }
             <Field label="Business Unit" value={order.business_units?.name} />
             <Field label="Factory" value={order.factories?.name || "Not yet assigned"} />
             <Field label="Ordered Quantity" value={fmtNum(order.qty)} />
-            <Field label="FOB" value={"fob" in order ? fmtFob(order.fob) : "—"} />
+            <Field label="FOB (this style)" value={"fob" in order ? fmtFob(order.fob) : "—"} />
             <Field label="ETD" value={fmtCompact(order.etd, dateFormat)} />
             {canSeeInternalDateFields() && <Field label="Rev ETD" value={order.revised_etd ? fmtCompact(order.revised_etd, dateFormat) : "—"} />}
             <Field label="Shipment Status" value={order.status === "shipped" ? "Shipped" : "Pending"} />
@@ -886,8 +914,17 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
   return (
     <div className="modal-overlay">
       <div className="modal-box" style={{ width: 620 }}>
-        <div className="modal-title">Edit Order — {order.po_prefix}{order.po_number}</div>
-        <p className="muted-sm" style={{ marginBottom: 14 }}>Changes are written to the Activity Log automatically, one line per changed field.</p>
+        <div className="modal-title">Edit Order — {order.po_prefix}{order.po_number} · {order.style || "—"}</div>
+        {/* The title used to name only the PO, which made every field in here
+            look like it applied to the whole PO — and FOB, which is a
+            property of the STYLE, was the field that mattered. The style is
+            in the title now, and every field says which of the two it
+            belongs to, so it can be read rather than remembered. */}
+        <p className="muted-sm" style={{ marginBottom: 14 }}>
+          Fields marked <span className="po-wide-tag">whole PO</span> apply to every style
+          under this PO. Everything else — including <strong>FOB</strong> — belongs to
+          this style alone. Changes are written to the Activity Log, one line per field.
+        </p>
         <DraftNotice restored={draft.restored} onDiscard={draft.discard} what="changes" />
         {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -942,8 +979,13 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
           <label className="edit-field">Business Unit<SelectWithAddNew value={form.business_unit_code} onChange={v => set("business_unit_code", v)} options={options.businessUnits} table="business_units" onAdded={refreshOptions} /></label>
           <label className="edit-field">Factory<select value={form.factory_code} onChange={e => set("factory_code", e.target.value)}><option value="">Not yet assigned</option>{factories.map(f => <option key={f.code} value={f.code}>{f.code} - {f.name}</option>)}</select></label>
           <label className="edit-field">Status<select value={form.status} onChange={e => set("status", e.target.value)}><option value="unassigned">Unassigned</option><option value="sourcing">Sourcing</option><option value="production">In Production</option><option value="shipped">Shipped</option></select></label>
-          <label className="edit-field">Qty<input type="number" value={form.qty} onChange={e => set("qty", e.target.value)} /></label>
-          {showFob && <label className="edit-field">FOB<input type="number" step="0.01" value={form.fob} onChange={e => set("fob", e.target.value)} /></label>}
+          <label className="edit-field">Qty <span className="style-tag" title="The quantity of this style only">this style</span><input type="number" value={form.qty} onChange={e => set("qty", e.target.value)} /></label>
+          {showFob && (
+            <label className="edit-field">
+              FOB <span className="style-tag" title="FOB is the price of THIS STYLE. Other styles under the same PO have their own — see the Pricing tab.">this style</span>
+              <input type="number" step="0.01" min="0" value={form.fob} onChange={e => set("fob", e.target.value)} />
+            </label>
+          )}
           <label className="edit-field">Fabric Ref<input value={form.fabric_ref} onChange={e => set("fabric_ref", e.target.value)} placeholder="From PLM, or add manually" /></label>
           {/* Product Group is a real select here, not the free-text input
               v13 used -- orders.product_group_code is a genuine foreign

@@ -116,6 +116,103 @@ export async function getOrderColorWaysForOrders(orderIds) {
   return byOrder;
 }
 
+/* `order_color_ways.fob` arrives with migration 41. Same treatment as the ETD
+   buffer in migration 39: the app asks the database what it actually has,
+   rather than being gated on a version number or a flag somebody has to
+   remember to switch. Until the column exists, the colour field is simply not
+   offered and the style price is the only price. */
+let colourFobColumnExists = null;
+
+/* --------------------------------------------------------------------------
+   Pricing: the PO's styles, and the colours under them.
+   --------------------------------------------------------------------------
+   The Orders Tracking sheet reads PO -> style -> colour -> qty -> FOB, and
+   this is the query behind the panel that mirrors it. One PO can hold several
+   styles at several prices, and seeing them on one screen is the difference
+   between spotting that OGASE020 and OGASG059 are both showing 3.59 and not
+   spotting it.
+
+   FOB is fetched only when the caller may see it — the same `view_fob`
+   permission that gates it everywhere else, checked here rather than trusted
+   to the screen. */
+export async function getPoPricing(poPrefix, poNumber) {
+  const canFob = await canViewFob();
+  const cols = `id, po_prefix, po_number, style, qty, etd, status${canFob ? ", fob" : ""}`;
+  const { data: orders, error } = await supabase.from("orders")
+    .select(cols)
+    .eq("po_prefix", poPrefix).eq("po_number", poNumber).eq("is_deleted", false)
+    .order("style");
+  if (error) throw error;
+
+  const ids = (orders || []).map(o => o.id);
+  const byOrder = ids.length ? await getOrderColorWaysForOrders(ids) : new Map();
+
+  /* Probe on the READ rather than waiting for a failed write. The colour rows
+     come back with select("*"), so the column's presence is simply whether
+     the key is on the row — no extra query, and the panel knows before it
+     offers a field that cannot be saved. Only decided when there is at least
+     one row to look at; an order with no colours says nothing either way. */
+  for (const list of byOrder.values()) {
+    if (list.length) { colourFobColumnExists = "fob" in list[0]; break; }
+  }
+
+  return { orders: lensOrders(orders || []), colorWaysByOrder: byOrder, canFob };
+}
+
+export function colourFobAvailable() { return colourFobColumnExists === true; }
+
+/* A colour is identified within its order by NAME — that is what
+   order_milestones already keys on (`color_way_name`), so using anything else
+   here would mean two notions of which colour is which. */
+export async function setColourFob(orderId, colourName, fob) {
+  const value = fob === "" || fob === null || fob === undefined ? null : Number(fob);
+  if (value !== null && (!Number.isFinite(value) || value < 0)) {
+    throw new Error("FOB must be a number, and not negative.");
+  }
+  const { data, error } = await supabase.from("order_color_ways")
+    .update({ fob: value }).eq("order_id", orderId).eq("name", colourName)
+    .select("order_id").single();
+  if (error) {
+    if (isMissingColumn(error, "fob")) {
+      colourFobColumnExists = false;
+      throw new Error("Colour-level FOB is not available yet — migration 41 has not been run on this database.");
+    }
+    throw new Error("Could not save the colour price -- you may not have edit access to this order.");
+  }
+  colourFobColumnExists = true;
+  if (!data) throw new Error("That colour was not found on this order.");
+
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    order_id: orderId, actor_id: user.id, action: "order.field_edited",
+    field_name: `fob (${colourName})`, old_value: null,
+    new_value: value === null ? "(uses style FOB)" : String(value),
+  });
+}
+
+/* The style's own price. Deliberately its own function rather than a trip
+   through editOrder(): setting a price from the Pricing panel should not
+   drag the whole Edit Order form's field set along with it, and — the part
+   that matters — FOB must never be spread across the PO. It is a property of
+   the style line, which is exactly what this report was about. */
+export async function setStyleFob(orderId, fob) {
+  const value = fob === "" || fob === null || fob === undefined ? null : Number(fob);
+  if (value !== null && (!Number.isFinite(value) || value < 0)) {
+    throw new Error("FOB must be a number, and not negative.");
+  }
+  const { data: before } = await supabase.from("orders").select("fob").eq("id", orderId).single();
+  const { data, error } = await supabase.from("orders")
+    .update({ fob: value }).eq("id", orderId).select("id").single();
+  if (error || !data) throw new Error("Could not save the price -- you may not have edit access to this style.");
+
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    order_id: orderId, actor_id: user.id, action: "order.field_edited",
+    field_name: "fob", old_value: before?.fob != null ? String(before.fob) : null,
+    new_value: value === null ? null : String(value),
+  });
+}
+
 export async function getOrderSamples(orderId) {
   const { data, error } = await supabase.from("order_style_samples").select("*").eq("order_id", orderId);
   if (error) throw error;

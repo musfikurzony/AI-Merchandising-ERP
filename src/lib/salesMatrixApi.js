@@ -75,9 +75,13 @@ export function fiscalMonths(fiscalYear) {
 
    Returns null for an order that contributes nothing to this scope, so the
    caller never has to repeat the status rules. */
-export function contributionOf(order, shipmentSummaryByOrder, scope) {
+export function contributionOf(order, shipmentSummaryByOrder, scope, colorWaysByOrder) {
   if (!order || order.status === "cancelled") return null;
-  const m = orderMetrics(order, shipmentSummaryByOrder);
+  /* colorWaysByOrder is threaded through so a colour with its own FOB is
+     priced at that price here too. The matrix is the corporate sales sheet;
+     it disagreeing with the Reports Center by a few dollars per PO would be
+     the worst possible place for the two to drift. */
+  const m = orderMetrics(order, shipmentSummaryByOrder, colorWaysByOrder);
   const isShipped = order.status === "shipped";
 
   if (isShipped) {
@@ -122,7 +126,7 @@ function runningTotal(cells) {
    memory. Anything outside both years is ignored rather than silently
    folded into the nearest month.
 */
-export function buildSalesMatrix({ orders = [], shipmentSummaryByOrder = new Map() }, {
+export function buildSalesMatrix({ orders = [], shipmentSummaryByOrder = new Map(), colorWaysByOrder = new Map() }, {
   fiscalYear,
   dimension = "factory",
   scope = "both",
@@ -143,7 +147,7 @@ export function buildSalesMatrix({ orders = [], shipmentSummaryByOrder = new Map
   let valuedOrders = 0, countedOrders = 0, skippedNoDate = 0, skippedOutOfRange = 0;
 
   for (const o of orders) {
-    const c = contributionOf(o, shipmentSummaryByOrder, scope);
+    const c = contributionOf(o, shipmentSummaryByOrder, scope, colorWaysByOrder);
     if (!c) { if (o.status !== "cancelled" && !effectiveEtd(o)) skippedNoDate++; continue; }
 
     const i = monthIndex.get(c.monthKey);

@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient.js";
-import { canViewFob } from "./ordersApi.js";
+import { canViewFob, getOrderColorWaysForOrders } from "./ordersApi.js";
+import { orderValue as priceOrder, valueForQty } from "./pricing.js";
 
 /* Single source of truth for every KPI formula in this app -- KPI
    Dashboard, Factory Performance, Merchandiser Performance, and (later)
@@ -118,10 +119,17 @@ export async function getKpiData(filters = {}) {
   const shippedOrders = allOrders.filter(o => o.status === "shipped");
   const orderIds = openOrders.map(o => o.id);
   const allOrderIds = allOrders.map(o => o.id);
-  const [milestones, latestCrd, shipmentData] = await Promise.all([
+  /* Colour ways are loaded here for ONE reason: a colour can carry its own
+     FOB (migration 41), and a KPI that priced everything at the style rate
+     would disagree with the Reports Center, which does not. "One engine, one
+     number" is the whole point — a second, cheaper arithmetic that is right
+     99% of the time is exactly how two screens end up showing two totals.
+     Routed through the same paged/chunked helper the reports use. */
+  const [milestones, latestCrd, shipmentData, colorWaysByOrder] = await Promise.all([
     fetchMilestonesForOrders(orderIds),
     fetchLatestCrdForOrders(orderIds),
     fetchShipmentDataForOrders(allOrderIds),
+    getOrderColorWaysForOrders(allOrderIds),
   ]);
   const actualEtd = new Map([...shipmentData].filter(([, v]) => v.actual_etd).map(([k, v]) => [k, v.actual_etd]));
 
@@ -185,10 +193,11 @@ export async function getKpiData(filters = {}) {
   // current user (view_fob-gated, same as everywhere else); shipped Qty
   // uses the real shipped_qty summed from shipment_lines, not the ordered qty.
   const openQty = openOrders.reduce((s, o) => s + (o.qty || 0), 0);
-  const openValue = "fob" in (openOrders[0] || {}) ? openOrders.reduce((s, o) => s + (o.qty || 0) * (o.fob || 0), 0) : null;
+  const priceOf = o => priceOrder(o, colorWaysByOrder.get(o.id) || []).value || 0;
+  const openValue = "fob" in (openOrders[0] || {}) ? openOrders.reduce((s, o) => s + priceOf(o), 0) : null;
   const shippedQty = shippedOrders.reduce((s, o) => s + (shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0), 0);
   const shippedValue = "fob" in (shippedOrders[0] || openOrders[0] || {})
-    ? shippedOrders.reduce((s, o) => s + (shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0) * (o.fob || 0), 0) : null;
+    ? shippedOrders.reduce((s, o) => s + (valueForQty(o, colorWaysByOrder.get(o.id) || [], shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0) || 0), 0) : null;
   const openShippedSummary = { openQty, openValue, openOrders: openOrders.length, shippedQty, shippedValue, shippedOrders: shippedOrders.length };
 
   const riskCounts = {
@@ -200,7 +209,7 @@ export async function getKpiData(filters = {}) {
   const overdueMilestoneCount = milestones.filter(m => classifyMilestone(m.plan_date, m.actual_date, today) === "miss" && !m.actual_date).length;
 
   return {
-    orders: openOrders, allOrders, shippedOrders, milestones, milestoneTypes, latestCrd, actualEtd, shipmentData,
+    orders: openOrders, allOrders, shippedOrders, milestones, milestoneTypes, latestCrd, actualEtd, shipmentData, colorWaysByOrder,
     criticalPathHitRate, fabricInhouseHitRate, pcdHitRate, merchandisingOtd, shippingOtd, shortShipment, openShippedSummary,
     riskCounts, overdueMilestoneCount, totalOrders: openOrders.length,
   };
@@ -251,9 +260,9 @@ export function rollupByDimension(kpiData, dimensionFn, labelFn) {
     const overdue = kpiData.milestones.filter(m => openOrderIds.includes(m.order_id) && classifyMilestone(m.plan_date, m.actual_date, today) === "miss" && !m.actual_date).length;
     const hasFob = "fob" in (g.openOrders[0] || g.shippedOrders[0] || {});
     const openQty = g.openOrders.reduce((s, o) => s + (o.qty || 0), 0);
-    const openValue = hasFob ? g.openOrders.reduce((s, o) => s + (o.qty || 0) * (o.fob || 0), 0) : null;
+    const openValue = hasFob ? g.openOrders.reduce((s, o) => s + (priceOrder(o, kpiData.colorWaysByOrder?.get(o.id) || []).value || 0), 0) : null;
     const shippedQty = g.shippedOrders.reduce((s, o) => s + (kpiData.shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0), 0);
-    const shippedValue = hasFob ? g.shippedOrders.reduce((s, o) => s + (kpiData.shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0) * (o.fob || 0), 0) : null;
+    const shippedValue = hasFob ? g.shippedOrders.reduce((s, o) => s + (valueForQty(o, kpiData.colorWaysByOrder?.get(o.id) || [], kpiData.shipmentData.get(o.id)?.shipped_qty ?? o.qty ?? 0) || 0), 0) : null;
     return {
       key: g.key, label: g.label, totalOrders: g.openOrders.length + g.shippedOrders.length,
       critical: g.openOrders.filter(o => o.risk === "critical").length,

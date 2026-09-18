@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient.js";
 import { buildReportDataset, orderMetrics } from "./reportsApi.js";
 import { fetchAllPaged as sharedFetchAllPaged, chunk as sharedChunk, PAGE_SIZE as SHARED_PAGE_SIZE, ID_CHUNK as SHARED_ID_CHUNK } from "./supabaseFetch.js";
+import { colourFob } from "./pricing.js";
 
 /* Backup & Export — controlled data export.
 
@@ -219,12 +220,16 @@ export function buildColourLevelRows(ds) {
 
   for (const o of ds.orders) {
     const colours = ds.colorWaysByOrder.get(o.id) || [];
-    const m = orderMetrics(o, ds.shipmentSummaryByOrder);
+    const m = orderMetrics(o, ds.shipmentSummaryByOrder, ds.colorWaysByOrder);
     const list = colours.length ? colours : [{ name: "", qty: o.qty }];
     for (const cw of list) {
       const shipped = shippedByOrderColour.get(`${o.id}|${cw.name || ""}`) || 0;
       const qty = cw.qty ?? 0;
-      const fob = "fob" in o ? o.fob : null;
+      /* The COLOUR's price — its own if it carries one, otherwise its
+         style's. This row is per colour, so reading the style price directly
+         would have exported the wrong figure for exactly the case the column
+         was added for. */
+      const fob = "fob" in o ? colourFob(cw, o) : null;
       rows.push({
         "PO Prefix": o.po_prefix, "PO Number": o.po_number, "PO": `${o.po_prefix}${o.po_number}`,
         "Delivery": o.delivery_sequence || 1,

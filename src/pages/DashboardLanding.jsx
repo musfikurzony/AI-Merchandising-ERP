@@ -45,8 +45,8 @@ function ShippingOverview() {
   if (error) return <p style={{ color: "#B91C1C" }}>{error}</p>;
   if (!data) return <p style={{ color: "#6B7280" }}>Loading...</p>;
 
-  const open = computeOpenOrders(data.orders, data.shipmentSummaryByOrder);
-  const shipped = computeShippedOrders(data.orders, data.shipmentSummaryByOrder);
+  const open = computeOpenOrders(data.orders, data.shipmentSummaryByOrder, data.colorWaysByOrder);
+  const shipped = computeShippedOrders(data.orders, data.shipmentSummaryByOrder, data.colorWaysByOrder);
 
   // "Shipped" (orders.status='shipped', Ex-Factory Done) splits into two
   // real buckets using data buildReportDataset() already fetched -- no
@@ -142,7 +142,7 @@ function ShippingOverview() {
           <thead><tr><th>PO</th><th>Style</th><th>Customer</th><th>Factory</th><th>ETD</th><th>Ordered</th><th>Shipped</th><th>Balance</th></tr></thead>
           <tbody>
             {open.rows.slice(0, 15).map(o => {
-              const m = orderMetrics(o, data.shipmentSummaryByOrder);
+              const m = orderMetrics(o, data.shipmentSummaryByOrder, data.colorWaysByOrder);
               return (
                 <tr key={o.id}>
                   <td><Link to={`/orders/${o.id}`} style={{ color: "#2B6E6A", fontWeight: 600, textDecoration: "none" }}>{o.po_prefix}{o.po_number}</Link></td>

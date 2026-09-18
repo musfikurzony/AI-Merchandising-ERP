@@ -157,7 +157,7 @@ export default function ReportsCenter() {
   function kpisFor(kind) {
     if (!data) return [];
     if (reportKey === "open_orders") {
-      const r = computeOpenOrders(data.orders, data.shipmentSummaryByOrder);
+      const r = computeOpenOrders(data.orders, data.shipmentSummaryByOrder, data.colorWaysByOrder);
       return [
         { label: "Open PO lines", value: r.poCount },
         { label: "Open qty", value: fmtNum(r.qty) },
@@ -165,7 +165,7 @@ export default function ReportsCenter() {
       ];
     }
     if (reportKey === "shipped_orders") {
-      const r = computeShippedOrders(data.orders, data.shipmentSummaryByOrder);
+      const r = computeShippedOrders(data.orders, data.shipmentSummaryByOrder, data.colorWaysByOrder);
       return [
         { label: "Shipped PO lines", value: r.poCount },
         { label: "Shipped qty", value: fmtNum(r.qty) },
@@ -173,7 +173,7 @@ export default function ReportsCenter() {
       ];
     }
     if (reportKey === "total_business") {
-      const r = computeTotalBusiness(data.orders, data.shipmentSummaryByOrder);
+      const r = computeTotalBusiness(data.orders, data.shipmentSummaryByOrder, data.colorWaysByOrder);
       return [
         { label: "Total PO lines", value: r.poCount },
         { label: "Total qty", value: fmtNum(r.qty) },
@@ -253,7 +253,7 @@ export default function ReportsCenter() {
   function openExcel() {
     if (!data || !grouped) return;
     const orderRows = data.orders.map(o => {
-      const m = orderMetrics(o, data.shipmentSummaryByOrder);
+      const m = orderMetrics(o, data.shipmentSummaryByOrder, data.colorWaysByOrder);
       return {
         "PO Prefix": o.po_prefix, "PO #": o.po_number, "Style": o.style, "Status": o.status,
         "Factory": o.factories?.name || "", "Merchandiser": o.profiles?.full_name || "", "Customer": o.customers?.name || "",

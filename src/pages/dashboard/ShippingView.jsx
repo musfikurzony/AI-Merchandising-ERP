@@ -145,7 +145,7 @@ export default function ShippingView({ ds, rows, summary, plan, dateFormat, modu
           <div><span className="l">Today</span><span className="v">{fmtNum(q.today)}</span><span className="s">{q.todayLines} line{q.todayLines === 1 ? "" : "s"}</span></div>
           <div><span className="l">This week</span><span className="v">{fmtNum(q.week)}</span><span className="s">from {q.weekFrom}</span></div>
           <div><span className="l">Month to date</span><span className="v">{fmtNum(q.mtd)}</span><span className="s">from {q.monthFrom}</span></div>
-          <div><span className="l">Still to ship</span><span className="v">{fmtNum(ds.orders.reduce((s, o) => s + Math.max(0, orderMetrics(o, ds.shipmentSummaryByOrder).balanceQty), 0))}</span><span className="s">open balance</span></div>
+          <div><span className="l">Still to ship</span><span className="v">{fmtNum(ds.orders.reduce((s, o) => s + Math.max(0, orderMetrics(o, ds.shipmentSummaryByOrder, ds.colorWaysByOrder).balanceQty), 0))}</span><span className="s">open balance</span></div>
         </div>
         <p className="db-foot-note">
           Counted from the shipment lines themselves, by the date the goods actually left — not from order status, which

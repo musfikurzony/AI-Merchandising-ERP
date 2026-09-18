@@ -285,7 +285,7 @@ export function distributionBy(ds, keyFn, labelFn, limit = 6) {
     const k = keyFn(o) || "—";
     if (!groups.has(k)) groups.set(k, { label: labelFn ? labelFn(o) || k : k, poCount: 0, qty: 0, value: 0, pos: new Set() });
     const g = groups.get(k);
-    const m = orderMetrics(o, ds.shipmentSummaryByOrder);
+    const m = orderMetrics(o, ds.shipmentSummaryByOrder, ds.colorWaysByOrder);
     g.pos.add(`${o.po_prefix}${o.po_number}`);
     g.qty += m.orderedQty;
     g.value += m.orderValue;

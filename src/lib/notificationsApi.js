@@ -81,7 +81,7 @@ function isApproved(m) {
 export function buildOrderFacts(ds, order, today) {
   const ms = ds.milestonesByOrder.get(order.id) || [];
   const k = ds.keys || {};
-  const metrics = orderMetrics(order, ds.shipmentSummaryByOrder);
+  const metrics = orderMetrics(order, ds.shipmentSummaryByOrder, ds.colorWaysByOrder);
   const summary = ds.shipmentSummaryByOrder.get(order.id);
 
   const prodStart = pickMilestone(ms, k.prodStart?.key);
