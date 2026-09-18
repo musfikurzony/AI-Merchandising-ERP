@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import ExcelPreviewModal from "../../components/ExcelPreviewModal.jsx";
 import { stamp } from "../../lib/exportPreview.js";
 import { listOrders, getFilterOptions, assignFactory, getOrderColorWaysForOrders, getPoCancellationDetails, getExFactoryMilestonesForOrders } from "../../lib/ordersApi.js";
 import { getShipmentLinesForOrders } from "../../lib/shipmentApi.js";
 import { fmtCompact } from "../../lib/dateFormat.js";
+import { effectiveEtd } from "../../lib/deliveryDate.js";
 import { useSticky, useStickyScope } from "../../lib/viewState.js";
+import { useTableSort, useSortedRows } from "../../lib/sortTable.js";
+import SortableTh from "../../components/SortableTh.jsx";
 import RestoredNotice from "../../components/RestoredNotice.jsx";
 
 const LIFECYCLE = [
@@ -171,6 +174,60 @@ export default function OrdersList() {
     .filter(o => !filters.merchandiser || o.profiles?.full_name === filters.merchandiser)
     .filter(o => !searchTerm || `${o.po_prefix}${o.po_number} ${o.style} ${o.customers?.name || ""}`.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  /* --------------------------------------------------------------------
+     One row per order + colour, FLATTENED BEFORE SORTING.
+     --------------------------------------------------------------------
+     The table used to build colour rows inside the render, which meant
+     Colour and Qty could never be sorted — they did not exist until after
+     the ordering had been decided. Flattening first makes every column on
+     screen a real, sortable field, and it is the same list the export
+     reads, so the two can no longer disagree about order. */
+  const displayRows = useMemo(() => filteredOrders.flatMap(o => {
+    const cws = colorWaysByOrder.get(o.id);
+    const list = cws?.length ? cws : [{ name: "—", qty: o.qty }];
+    return list.map((cw, i) => ({ key: `${o.id}-${cw.name}-${i}`, order: o, cw }));
+  }), [filteredOrders, colorWaysByOrder]);
+
+  /* Every column the table shows, with the KIND of comparison it needs.
+     Declared once so the header, the sorting and the export all read the
+     same list — a header that sorts by a key nothing else knows about is
+     how a column ends up sorting by the wrong thing. */
+  const COLUMNS = useMemo(() => [
+    { key: "product_group", label: "Product Group", kind: "text", value: r => r.order.product_groups?.name },
+    { key: "label", label: "Label", kind: "text", value: r => r.order.labels?.name },
+    { key: "bu", label: "BU", kind: "text", value: r => r.order.business_units?.name },
+    { key: "customer", label: "Customer", kind: "text", value: r => r.order.customers?.name },
+    { key: "po", label: "PO", kind: "text", value: r => `${r.order.po_prefix}${r.order.po_number}` },
+    { key: "style", label: "Style", kind: "text", value: r => r.order.style },
+    { key: "color", label: "Color", kind: "text", value: r => r.cw.name },
+    { key: "qty", label: "Qty", kind: "number", value: r => r.cw.qty },
+    { key: "fob", label: "FOB", kind: "number", value: r => ("fob" in r.order ? r.order.fob : null) },
+    /* The delivery date, not the raw etd — a revised PO should sort by the
+       date it is actually going to ship on, which is the rule lib/deliveryDate
+       has held since v92. */
+    { key: "etd", label: "ETD", kind: "date", value: r => effectiveEtd(r.order) },
+    { key: "factory", label: "Factory", kind: "text", value: r => r.order.factories?.name },
+    { key: "merchandiser", label: "Merchandiser", kind: "text", value: r => r.order.profiles?.full_name },
+    { key: "status", label: "Status", kind: "text", value: r => r.order.status },
+    { key: "risk", label: "Risk", kind: "text", value: r => r.order.risk },
+  ], []);
+
+  const [sort, toggleSort] = useTableSort("orders", { key: "etd", dir: "asc" });
+  /* Ties fall back to PO, then style, then colour — so a PO's rows stay
+     adjacent whatever column is being sorted by, which is most of what the
+     report was actually about. */
+  const sortedRows = useSortedRows(displayRows, COLUMNS, sort, ["po", "style", "color"]);
+
+  /* The orders behind the sorted rows, in that same order and without
+     repeats. The export reads this so a downloaded sheet is in the order the
+     person was looking at — the same class of mismatch as the search box the
+     export used to ignore. */
+  const sortedOrders = useMemo(() => {
+    const seen = new Set(); const out = [];
+    for (const r of sortedRows) if (!seen.has(r.order.id)) { seen.add(r.order.id); out.push(r.order); }
+    return out;
+  }, [sortedRows]);
+
   /* One row per order + color + shipment line -- color-level order
      quantity, never aggregated to a PO total, per the explicit
      requirement. A color with multiple partial shipments produces
@@ -189,7 +246,7 @@ export default function OrdersList() {
   async function exportToExcel() {
     setExporting(true); setError(null);
     try {
-      const orderIds = filteredOrders.map(o => o.id);
+      const orderIds = sortedOrders.map(o => o.id);
       const [colorWaysByOrder, shipmentsByOrder, exFactoryByOrder] = await Promise.all([
         getOrderColorWaysForOrders(orderIds),
         getShipmentLinesForOrders(orderIds),
@@ -200,7 +257,7 @@ export default function OrdersList() {
       const colorRows = [];
       const shipmentRows = [];
 
-      for (const o of filteredOrders) {
+      for (const o of sortedOrders) {
         const colorWays = colorWaysByOrder.get(o.id)?.length ? colorWaysByOrder.get(o.id) : [{ name: "—", qty: o.qty }];
         const allLines = shipmentsByOrder.get(o.id) || [];
         const exFactory = exFactoryByOrder.get(o.id);
@@ -311,19 +368,19 @@ export default function OrdersList() {
       {loading ? <p>Loading...</p> : (
         <div className="card no-pad">
           <table className="data-table">
-            <thead><tr><th>Product Group</th><th>Label</th><th>BU</th><th>Customer</th><th>PO</th><th>Style</th><th>Color</th><th>Qty</th><th>FOB</th><th>ETD</th><th>Factory</th><th>Merchandiser</th><th>Status</th><th>Risk</th></tr></thead>
+            <thead>
+              <tr>
+                {COLUMNS.map(c => (
+                  <SortableTh key={c.key} column={c} sort={sort} onSort={toggleSort}
+                    className={c.kind === "number" ? "num" : ""} />
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {filteredOrders.flatMap(o => {
-                // Color-level rows, matching the same granularity
-                // Workbench already shows -- confirmed as a real gap
-                // otherwise: this table previously aggregated to one row
-                // per style, hiding genuinely different color-level
-                // quantities (e.g. OCWR2705's two colors) under one total.
-                const colorWays = colorWaysByOrder.get(o.id);
-                const rows = colorWays?.length ? colorWays : [{ name: "—", qty: o.qty }];
+              {sortedRows.map(({ key, order: o, cw }) => {
                 const risk = RISK_META[o.risk] || RISK_META.onTrack;
-                return rows.map((cw, i) => (
-                  <tr key={`${o.id}-${cw.name}-${i}`}>
+                return (
+                  <tr key={key}>
                     <td>{o.product_groups?.name || "—"}</td>
                     <td>{o.labels?.name || "—"}</td>
                     <td>{o.business_units?.name || "—"}</td>
@@ -333,7 +390,19 @@ export default function OrdersList() {
                     <td>{cw.name}</td>
                     <td className="mono">{cw.qty?.toLocaleString() ?? "—"}</td>
                     <td className="mono">{"fob" in o && o.fob != null ? `$${Number(o.fob).toFixed(2)}` : "—"}</td>
-                    <td className="mono">{fmtCompact(o.etd, dateFormat)}</td>
+                    {/* The DELIVERY date — revised if there is one — because that
+                        is what the column sorts by, what every report buckets by
+                        (lib/deliveryDate, since v92) and what the PO is actually
+                        going to ship on. Showing the original here while sorting
+                        by the revision made a revised PO look out of order, which
+                        is how this was found. A revised row says so rather than
+                        quietly showing a different date from the one on file. */}
+                    <td className="mono" style={{ whiteSpace: "nowrap" }}>
+                      {fmtCompact(effectiveEtd(o), dateFormat)}
+                      {o.revised_etd && o.revised_etd !== o.etd && (
+                        <span className="etd-rev" title={`Revised from ${fmtCompact(o.etd, dateFormat)}`}>rev</span>
+                      )}
+                    </td>
                     <td>
                       {o.factories?.name
                         ? o.factories.name
@@ -347,9 +416,9 @@ export default function OrdersList() {
                     </td>
                     <td><span className="risk-inline"><span className="dot" style={{ background: risk.dot }} />{risk.label}</span></td>
                   </tr>
-                ));
+                );
               })}
-              {filteredOrders.length === 0 && <tr><td colSpan={14} className="empty-row">No orders match this filter.</td></tr>}
+              {sortedRows.length === 0 && <tr><td colSpan={COLUMNS.length} className="empty-row">No orders match this filter.</td></tr>}
             </tbody>
           </table>
         </div>

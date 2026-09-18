@@ -1475,3 +1475,65 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   border-bottom: 1px dotted #C4C9D0;
   cursor: help;
 }
+
+/* --------------------------------------------------------------------------
+   SORTABLE COLUMN HEADINGS (v100)
+   --------------------------------------------------------------------------
+   The report: one PO's styles appeared at the top of the Orders list and the
+   rest at the bottom, because four of its rows carry a delivery date and two
+   carry none, and a row with no date sorts last. The answer he asked for —
+   let the user sort by any column — is the right one, since no single default
+   serves "review this factory's book by PO", "chase deliveries by date" and
+   "check prices by style" at the same time.
+
+   The arrow shows at low opacity on EVERY sortable heading rather than only
+   the active one. A control that appears only once you have used it is a
+   control nobody finds. */
+th.sort-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+th.sort-th:hover { background: #EEF2F1; }
+.sort-th-inner { display: inline-flex; align-items: center; gap: 4px; }
+th.sort-th.num .sort-th-inner { justify-content: flex-end; width: 100%; }
+
+.sort-arrow {
+  font-size: 8.5px;
+  line-height: 1;
+  opacity: .28;
+  transition: opacity .12s ease;
+}
+th.sort-th:hover .sort-arrow { opacity: .6; }
+th.sort-th.on { color: #1F5A57; }
+th.sort-th.on .sort-arrow { opacity: 1; color: #2B6E6A; }
+
+/* The same, inside the Excel preview — where the heading already carries a
+   filter icon, so only the text is clickable. */
+.cf-sortable {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cf-sortable:hover .cf-th-text { color: #1F5A57; }
+.cf-sortable:hover .sort-arrow { opacity: .6; }
+th.cf-sorted .cf-th-text { color: #1F5A57; font-weight: 700; }
+th.cf-sorted .sort-arrow { opacity: 1; color: #2B6E6A; }
+
+/* A revised delivery date, marked where it is shown. The Orders list shows
+   coalesce(revised_etd, etd) — the date the PO will actually ship on, and the
+   one every report buckets by — so without a marker a reader would have no
+   way to tell it from the original that is still on file. */
+.etd-rev {
+  margin-left: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: #FEF3C7;
+  color: #92400E;
+  vertical-align: middle;
+}

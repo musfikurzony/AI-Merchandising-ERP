@@ -260,21 +260,38 @@ function SharedWithPanel({ order }) {
     try { await shareOrderWithUser(order.id, selected); setSelected(""); await refresh(); }
     catch (e) { setError(e.message); }
   }
-  async function remove(id) {
-    try { await revokeOrderShare(id); await refresh(); }
+  async function remove(entry) {
+    /* The whole grouped entry, not one row id — a PO-level share is a row per
+       style, and removing one of them would leave the colleague holding a
+       fragment while the list showed them as removed. */
+    try { await revokeOrderShare(entry); await refresh(); }
     catch (e) { setError(e.message); }
   }
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>Shared with</div>
-      <p className="muted-sm" style={{ marginBottom: 10 }}>Other merchandisers who can see and edit this order in their own My Orders — useful when a department shares coverage on a PO.</p>
+      <p className="muted-sm" style={{ marginBottom: 10 }}>
+        Sharing applies to the <strong>whole PO</strong> — every style under
+        {" "}{order.po_prefix}{order.po_number} appears in their My Orders, Dashboard and
+        Workbench, not just the style open here.
+      </p>
       {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
       {!loading && shares.length === 0 && <p className="muted-sm">Not shared with anyone else yet.</p>}
       {shares.map(s => (
-        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F2F3F6" }}>
-          <span>{s.profiles?.full_name || s.user_id}</span>
-          <button className="btn-ghost-sm" onClick={() => remove(s.id)}>Remove</button>
+        <div key={s.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F2F3F6" }}>
+          <span>
+            {s.profiles?.full_name || s.user_id}
+            {/* A share made before v99 covers only the style it was granted
+                on. Saying so is the difference between the colleague quietly
+                missing five styles and somebody pressing Share again. */}
+            {s.partial && (
+              <span className="pp-mixed" title={`This person has ${s.styleCount} of the ${s.poStyles} styles under this PO — share again to give them all of it`}>
+                {s.styleCount} of {s.poStyles} styles
+              </span>
+            )}
+          </span>
+          <button className="btn-ghost-sm" onClick={() => remove(s)}>Remove</button>
         </div>
       ))}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -896,8 +913,9 @@ function EditOrderModal({ order, colorWays = [], factories, labels, dateFormat, 
         setSaving(false);
         return;
       }
-      const poWideNote = spread?.updated
-        ? `Merchandiser / buffer also applied to ${spread.updated} other style${spread.updated !== 1 ? "s" : ""} under this PO.`
+      const reached = spread?.touched ?? spread?.updated ?? 0;
+      const poWideNote = reached
+        ? `Also applied to ${reached} other style${reached !== 1 ? "s" : ""} under this PO.`
         : null;
       /* Only after the write succeeded. A failed save is exactly when the
          typing is most worth keeping, so the catch below does not clear. */
@@ -919,15 +937,16 @@ function EditOrderModal({ order, colorWays = [], factories, labels, dateFormat, 
             in the title now, and every field says which of the two it
             belongs to, so it can be read rather than remembered. */}
         <p className="muted-sm" style={{ marginBottom: 14 }}>
-          Fields marked <span className="po-wide-tag">whole PO</span> apply to every style
-          under this PO. Everything else — including <strong>FOB</strong> — belongs to
-          this style alone. Changes are written to the Activity Log, one line per field.
+          Fields marked <span className="po-wide-tag">whole PO</span> — the dates, the
+          merchandiser and the buffer — apply to every style under this PO. Everything
+          else, including <strong>FOB</strong>, belongs to this style alone. Changes are
+          written to the Activity Log, one line per field.
         </p>
         <DraftNotice restored={draft.restored} onDiscard={draft.discard} what="changes" />
         {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label className="edit-field">ETD<input type="date" value={form.etd} onChange={e => set("etd", e.target.value)} /></label>
-          {internalDates && <label className="edit-field">Revised ETD<input type="date" value={form.revised_etd} onChange={e => set("revised_etd", e.target.value)} /></label>}
+          <label className="edit-field">ETD <span className="po-wide-tag" title="A PO ships together, so the delivery date applies to every style under it. On a split PO it applies to this delivery only.">whole PO</span><input type="date" value={form.etd} onChange={e => set("etd", e.target.value)} /></label>
+          {internalDates && <label className="edit-field">Revised ETD <span className="po-wide-tag" title="Applies to every style of this delivery, and its reason is written to each one's Activity Log.">whole PO</span><input type="date" value={form.revised_etd} onChange={e => set("revised_etd", e.target.value)} /></label>}
           {/* Reason prompt for Revised ETD specifically -- flagging honestly:
               this wasn't literally in v13's EditOrderModal source (checked
               directly), but matches the same "reason required" pattern v13

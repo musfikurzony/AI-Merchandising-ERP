@@ -515,6 +515,28 @@ export async function saveMilestoneField(orderId, milestoneKey, colorWayName, fi
    one edit reaches. */
 export const PO_WIDE_FIELDS = ["primary_merchandiser_id", "etd_buffer_days"];
 
+/* --------------------------------------------------------------------------
+   Dates belong to the PO too — but to the DELIVERY, not the whole PO blindly.
+   --------------------------------------------------------------------------
+   "ETD also I put but seeing ETD is not reflecting to all style, all colours,
+   whereas this ETD is whole PO level, right… So each colour setting ETD is
+   not wise."
+
+   Right. A PO ships together; the delivery date is a fact about the PO, not
+   about each style inside it. v95 left ETD per style on the reasoning that it
+   is "genuinely a property of the style line", and that was wrong about this
+   business.
+
+   The one real exception is a SPLIT DELIVERY. `splitOrderDelivery()` exists
+   and gives a PO more than one `delivery_sequence`, each with its own date —
+   that is the whole point of splitting one. Spreading a date across the
+   entire PO regardless would silently overwrite the second delivery's date
+   with the first's, which is a worse bug than the one being fixed.
+
+   So these spread across the same PO AND the same delivery sequence. An
+   unsplit PO has one sequence, so in the ordinary case that is every style. */
+export const DELIVERY_WIDE_FIELDS = ["etd", "revised_etd"];
+
 export async function editOrder(orderId, before, changes, revisedEtdReason) {
   const { data: { user } } = await supabase.auth.getUser();
   const { data: updated, error } = await supabase.from("orders").update(changes).eq("id", orderId).select("id").single();
@@ -531,34 +553,88 @@ export async function editOrder(orderId, before, changes, revisedEtdReason) {
   }
   if (entries.length) await supabase.from("audit_log").insert(entries);
 
-  /* The PO-wide fields, applied to the rest of the PO. Done AFTER the main
-     write and reported separately: if this half fails the edit the user
-     made has still been saved, and they are told which styles were not
-     reached rather than being shown one error for the whole save. */
+  /* The shared fields, reconciled across the PO. Done AFTER the main write
+     and reported separately: if this half fails, the edit the user made has
+     still been saved, and they are told which styles were not reached rather
+     than being shown one error for the whole save.
+
+     ------------------------------------------------------------------------
+     RECONCILED ON EVERY SAVE, NOT ONLY WHEN THE VALUE CHANGES
+     ------------------------------------------------------------------------
+     This used to spread a field only when it DIFFERED from `before` on the
+     style being edited. That is the bug he hit: he set the merchandiser on
+     OGASE020, and because that style already held the value by the time he
+     saved, nothing was considered changed and the other five styles of
+     RT5077 were never touched. The PO sat with one style named and five
+     blank, and no screen said anything was wrong. Trying again later worked —
+     which is the worst kind of bug, because it looks like it fixed itself.
+
+     A shared field is not "a change to propagate", it is "a value the whole
+     PO must agree on". So every save states the intended value and each
+     sibling is compared against it. A sibling that already matches is left
+     alone, so nothing lands in its Activity Log for nothing. */
   const poWide = {};
-  for (const f of PO_WIDE_FIELDS) {
-    if (f in changes && String(before[f] ?? "") !== String(changes[f] ?? "")) poWide[f] = changes[f];
+  for (const f of PO_WIDE_FIELDS) if (f in changes) poWide[f] = changes[f];
+  const deliveryWide = {};
+  for (const f of DELIVERY_WIDE_FIELDS) if (f in changes) deliveryWide[f] = changes[f];
+
+  const results = [];
+  if (Object.keys(poWide).length) {
+    results.push(await spreadAcrossPo(orderId, poWide, user.id, { sameDeliveryOnly: false }));
   }
-  if (Object.keys(poWide).length === 0) return { spread: null };
-  return { spread: await spreadAcrossPo(orderId, poWide, user.id) };
+  if (Object.keys(deliveryWide).length) {
+    results.push(await spreadAcrossPo(orderId, deliveryWide, user.id, { sameDeliveryOnly: true, reason: revisedEtdReason }));
+  }
+  if (!results.length) return { spread: null };
+  return {
+    spread: {
+      updated: results.reduce((n, r) => n + r.updated, 0),
+      blocked: results.reduce((n, r) => n + r.blocked, 0),
+      total: Math.max(...results.map(r => r.total)),
+      /* Which styles were actually touched, so the confirmation can name a
+         number rather than a guess. A style reached by both spreads is one
+         style, not two. */
+      touched: [...new Set(results.flatMap(r => r.touched || []))].length,
+    },
+  };
 }
 
-/* Apply a set of fields to every other live style under the same PO.
+/* Apply a set of fields to the other live styles of the same PO.
+
    Row by row with .select().single(), the same as assignFactory, because
    .update() with a filter reports success on zero rows when RLS blocks it —
-   a silent partial write is precisely the failure this is meant to prevent. */
-async function spreadAcrossPo(orderId, fields, actorId) {
-  const { data: thisOrder, error: findErr } = await supabase.from("orders")
-    .select("po_prefix, po_number").eq("id", orderId).single();
-  if (findErr || !thisOrder) return { updated: 0, total: 0, blocked: 0 };
+   a silent partial write is precisely the failure this is meant to prevent.
 
-  const { data: siblings, error: sibErr } = await supabase.from("orders")
-    .select("id, " + PO_WIDE_FIELDS.join(", "))
+   `sameDeliveryOnly` narrows the set to the same `delivery_sequence`, which is
+   what the dates need: a split PO deliberately has more than one delivery,
+   each with its own date, and spreading a date across all of them would
+   overwrite the second delivery's commitment with the first's. */
+async function spreadAcrossPo(orderId, fields, actorId, { sameDeliveryOnly = false, reason = null } = {}) {
+  const { data: thisOrder, error: findErr } = await supabase.from("orders")
+    .select("po_prefix, po_number, delivery_sequence").eq("id", orderId).single();
+  /* Thrown, not swallowed. The old version returned zeros here and on the
+     sibling query below, which is indistinguishable from "there was nothing
+     to do" — so a PO could be left half-updated and the screen would say it
+     had succeeded. */
+  if (findErr || !thisOrder) throw new Error("Saved this style, but could not read the PO to apply the shared fields to the others.");
+
+  /* Only the columns being written, plus id. The old version selected every
+     PO-wide column whether it was being written or not, which meant the whole
+     query failed — silently — on a database where one of them did not exist
+     yet. A query should not depend on a column it has no interest in. */
+  const cols = ["id", ...Object.keys(fields)].join(", ");
+  let q = supabase.from("orders").select(cols)
     .eq("po_prefix", thisOrder.po_prefix).eq("po_number", thisOrder.po_number)
     .eq("is_deleted", false).neq("id", orderId);
-  if (sibErr || !siblings) return { updated: 0, total: 0, blocked: 0 };
+  if (sameDeliveryOnly) {
+    const seq = thisOrder.delivery_sequence ?? 1;
+    q = q.or(`delivery_sequence.eq.${seq}${seq === 1 ? ",delivery_sequence.is.null" : ""}`);
+  }
+  const { data: siblings, error: sibErr } = await q;
+  if (sibErr || !siblings) throw new Error("Saved this style, but could not list the other styles of this PO to apply the shared fields.");
 
   let updated = 0, blocked = 0;
+  const touched = [];
   const audits = [];
   for (const sib of siblings) {
     /* Already correct? Leave it alone. Writing an identical value would put
@@ -573,6 +649,7 @@ async function spreadAcrossPo(orderId, fields, actorId) {
     const { data: ok, error } = await supabase.from("orders").update(needed).eq("id", sib.id).select("id").single();
     if (error || !ok) { blocked++; continue; }
     updated++;
+    touched.push(sib.id);
     for (const [k, v] of Object.entries(needed)) {
       audits.push({
         order_id: sib.id, actor_id: actorId, action: "order.field_edited",
@@ -580,9 +657,19 @@ async function spreadAcrossPo(orderId, fields, actorId) {
         new_value: v != null ? String(v) : null,
       });
     }
+    /* A revised ETD carries a reason, and the reason is the justification for
+       THAT date change. If the date reaches five styles, so must the reason —
+       otherwise four of them show a changed commitment with no explanation
+       anywhere in their history. */
+    if (reason && "revised_etd" in needed) {
+      audits.push({
+        order_id: sib.id, actor_id: actorId, action: "order.field_edited",
+        field_name: "revised_etd_reason", old_value: null, new_value: reason,
+      });
+    }
   }
   if (audits.length) await supabase.from("audit_log").insert(audits);
-  return { updated, total: siblings.length, blocked };
+  return { updated, total: siblings.length, blocked, touched };
 }
 
 /* Add a new master-data value (Customer, Product Group, Label, Division,
@@ -632,20 +719,83 @@ export async function getMyOrders() {
 /* Managing who else (besides the primary merchandiser) can see and act on
    an order -- the UI side of order_permissions, which existed in the
    schema but had no way to grant/revoke it from anywhere in the app. */
+/* --------------------------------------------------------------------------
+   Sharing is a PO-level act, not a style-level one.
+   --------------------------------------------------------------------------
+   "If shared this PO to another merchandiser then also visible whole PO to
+   their ERP dashboard or order or workbench etc, everywhere."
+
+   `order_permissions` stores one row per ORDER ROW, which is one style. Share
+   the style you happen to have open and the colleague sees one style of a
+   six-style PO — on their Dashboard, in My Orders, in the Workbench,
+   everywhere — and has no way of knowing the rest exists. That is not
+   sharing a PO; it is sharing a fragment of one.
+
+   The storage does not change. What changes is that one grant writes a row
+   for every live style of the PO, and one revoke removes them all. */
+async function poStyleIds(orderId) {
+  const { data: o, error } = await supabase.from("orders")
+    .select("po_prefix, po_number").eq("id", orderId).single();
+  if (error || !o) throw new Error("Could not read this PO.");
+  const { data: rows, error: e2 } = await supabase.from("orders")
+    .select("id").eq("po_prefix", o.po_prefix).eq("po_number", o.po_number).eq("is_deleted", false);
+  if (e2 || !rows) throw new Error("Could not list the styles of this PO.");
+  return rows.map(r => r.id);
+}
+
+/* Who this PO is shared with. Grouped by person rather than listed once per
+   style — six rows saying "Samir Sarkar" would be a list of the storage, not
+   an answer to the question being asked. `styleCount` is carried so a share
+   that only covers part of the PO (a grant made before v99) is visible as
+   such rather than looking complete. */
 export async function getOrderSharedUsers(orderId) {
-  const { data, error } = await supabase.from("order_permissions").select("id, user_id, granted_at, profiles!order_permissions_user_id_fkey(full_name)").eq("order_id", orderId);
+  const ids = await poStyleIds(orderId);
+  const { data, error } = await supabase.from("order_permissions")
+    .select("id, order_id, user_id, granted_at, profiles!order_permissions_user_id_fkey(full_name)")
+    .in("order_id", ids);
   if (error) throw error;
-  return data;
+
+  const byUser = new Map();
+  for (const row of data) {
+    const entry = byUser.get(row.user_id) || {
+      id: row.id, user_id: row.user_id, granted_at: row.granted_at,
+      profiles: row.profiles, rowIds: [], styleCount: 0,
+    };
+    entry.rowIds.push(row.id);
+    entry.styleCount += 1;
+    if (row.granted_at && (!entry.granted_at || row.granted_at < entry.granted_at)) entry.granted_at = row.granted_at;
+    byUser.set(row.user_id, entry);
+  }
+  const poStyles = ids.length;
+  return [...byUser.values()].map(e => ({ ...e, poStyles, partial: e.styleCount < poStyles }));
 }
 
 export async function shareOrderWithUser(orderId, userId) {
   const { data: { user } } = await supabase.auth.getUser();
-  const { error } = await supabase.from("order_permissions").insert({ order_id: orderId, user_id: userId, granted_by: user.id });
-  if (error) throw new Error("Could not share this order -- you may not have permission to manage sharing on it.");
+  const ids = await poStyleIds(orderId);
+
+  /* Only the styles this person does not already have, so re-sharing a PO
+     that was partly shared earlier completes it instead of failing on the
+     rows that already exist. */
+  const { data: existing } = await supabase.from("order_permissions")
+    .select("order_id").eq("user_id", userId).in("order_id", ids);
+  const have = new Set((existing || []).map(r => r.order_id));
+  const missing = ids.filter(id => !have.has(id));
+  if (!missing.length) return { added: 0, total: ids.length };
+
+  const { error } = await supabase.from("order_permissions")
+    .insert(missing.map(id => ({ order_id: id, user_id: userId, granted_by: user.id })));
+  if (error) throw new Error("Could not share this PO -- you may not have permission to manage sharing on it.");
+  return { added: missing.length, total: ids.length };
 }
 
-export async function revokeOrderShare(permissionRowId) {
-  const { error } = await supabase.from("order_permissions").delete().eq("id", permissionRowId);
+/* Takes the grouped entry, not a single row id: revoking a PO-level share has
+   to remove every style's row, or the colleague keeps a partial PO and the
+   list still shows them as shared. */
+export async function revokeOrderShare(entry) {
+  const rowIds = Array.isArray(entry?.rowIds) ? entry.rowIds : [entry?.id ?? entry].filter(Boolean);
+  if (!rowIds.length) return;
+  const { error } = await supabase.from("order_permissions").delete().in("id", rowIds);
   if (error) throw new Error("Could not remove this share.");
 }
 

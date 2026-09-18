@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { usePreviewSize, MaximizeButton } from "./usePreviewSize.jsx";
 import ColumnFilter from "./ColumnFilter.jsx";
+import { sortRows } from "../lib/sortTable.js";
 import { sheetColumns, isNumericColumn, sheetToTSV, copyToClipboard, downloadWorkbook } from "../lib/exportPreview.js";
 import { filterSheet, isFiltered, filteredColumns, describe } from "../lib/sheetFilter.js";
 
@@ -40,13 +41,39 @@ export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileN
      the Shipment Details tab have different columns, and carrying one tab's
      filter onto another would either do nothing or filter the wrong thing. */
   const [filtersBySheet, setFiltersBySheet] = useState({});
+  /* Sort is per sheet for the same reason the filters are: the tabs have
+     different columns, and carrying one tab's sort key onto another would
+     either do nothing or silently sort by a column that is not there. */
+  const [sortBySheet, setSortBySheet] = useState({});
+
+  /* Held in a ref because the sorted `view` is computed above the memo that
+     works out which columns are numeric, and a column's KIND must not change
+     as rows are filtered — deciding it from the filtered set is what makes a
+     column silently switch between text and numeric ordering. */
+  const numericColsRef = useRef(new Set());
 
   const usable = (sheets || []).filter(Boolean);
   const sheet = usable[active] || { name: "Sheet", rows: [] };
   const filters = filtersBySheet[sheet.name] || {};
 
-  const view = useMemo(() => filterSheet(sheet, filters), [sheet, filters]);
-  const cols = sheetColumns(view);
+  const sort = sortBySheet[sheet.name] || null;
+
+  const filteredView = useMemo(() => filterSheet(sheet, filters), [sheet, filters]);
+  const cols = sheetColumns(filteredView);
+
+  /* Sorted AFTER filtering and BEFORE the preview cut, so the first 200 rows
+     on screen are the first 200 of the sorted set rather than the first 200
+     of the database's order, re-ordered. The totals live on `sheet.totals`,
+     not in `rows`, so nothing here can move them off the bottom. */
+  const view = useMemo(() => {
+    if (!sort?.key) return filteredView;
+    const columns = cols.map(c => ({
+      key: c, label: c,
+      kind: numericColsRef.current.has(c) ? "number" : "text",
+      value: row => row?.[c],
+    }));
+    return { ...filteredView, rows: sortRows(filteredView.rows || [], columns, sort) };
+  }, [filteredView, cols, sort]);
   const rows = view.rows || [];
   const allRows = sheet.rows || [];
   const shown = rows.slice(0, PREVIEW_LIMIT);
@@ -54,6 +81,7 @@ export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileN
      from the filtered rows would let a column change alignment as you
      filter, which looks like a rendering bug. */
   const numericCols = useMemo(() => new Set(cols.filter(c => isNumericColumn(sheet, c))), [sheet, cols]);
+  numericColsRef.current = numericCols;
 
   const filtering = isFiltered(filters);
   const activeCols = filteredColumns(filters);
@@ -62,14 +90,34 @@ export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileN
      a filter set on the Color Details tab must survive downloading the
      whole workbook, or the file would not match what was on screen. */
   const exportSheets = useMemo(
-    () => usable.map(s => filterSheet(s, filtersBySheet[s.name] || {})),
-    [usable, filtersBySheet]);
+    () => usable.map(s => {
+      const filtered = filterSheet(s, filtersBySheet[s.name] || {});
+      const sh = sortBySheet[s.name];
+      if (!sh?.key) return filtered;
+      /* The downloaded file is in the order that was on screen. An export
+         that ignores the sort is the same class of bug as one that ignored
+         the filters, which this modal already exists to have fixed. */
+      const columns = sheetColumns(filtered).map(c => ({
+        key: c, label: c, kind: isNumericColumn(s, c) ? "number" : "text", value: row => row?.[c],
+      }));
+      return { ...filtered, rows: sortRows(filtered.rows || [], columns, sh) };
+    }),
+    [usable, filtersBySheet, sortBySheet]);
 
   function setFilters(next) {
     setFiltersBySheet(prev => ({ ...prev, [sheet.name]: next }));
   }
   function clearAll() {
     setFiltersBySheet(prev => { const c = { ...prev }; delete c[sheet.name]; return c; });
+  }
+  function toggleSort(col) {
+    setSortBySheet(prev => {
+      const cur = prev[sheet.name];
+      const next = cur?.key === col
+        ? { key: col, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : { key: col, dir: "asc" };
+      return { ...prev, [sheet.name]: next };
+    });
   }
 
   async function handleCopy() {
@@ -142,9 +190,30 @@ export default function ExcelPreviewModal({ title, subtitle, meta, sheets, fileN
               <thead>
                 <tr>
                   {cols.map(c => (
-                    <th key={c} className={(numericCols.has(c) ? "num" : "") + (filters[c]?.size ? " cf-on" : "")}>
+                    <th key={c}
+                      className={(numericCols.has(c) ? "num" : "") + (filters[c]?.size ? " cf-on" : "") + (sort?.key === c ? " cf-sorted" : "")}
+                      aria-sort={sort?.key === c ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
                       <span className="cf-th">
-                        <span className="cf-th-text">{c}</span>
+                        {/* Only the TEXT sorts. The filter icon beside it is a
+                            separate control, and making the whole cell sort
+                            would fire a sort every time somebody reached for
+                            the filter. */}
+                        {/* The arrow sits OUTSIDE .cf-th-text, not inside it.
+                            Putting it in made the label element's textContent
+                            read "Factory↕", which broke every consumer that
+                            matches a column by its name — including the filter
+                            tests, which is how it was caught. The label element
+                            holds the label and nothing else. */}
+                        <span className="cf-sortable"
+                          onClick={() => toggleSort(c)}
+                          title={sort?.key === c
+                            ? `Sorted by ${c} ${sort.dir === "asc" ? "ascending" : "descending"} — click to reverse`
+                            : `Sort by ${c}`}>
+                          <span className="cf-th-text">{c}</span>
+                          <span className="sort-arrow" aria-hidden="true">
+                            {sort?.key === c ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
+                          </span>
+                        </span>
                         <ColumnFilter
                           col={c}
                           rows={allRows}
