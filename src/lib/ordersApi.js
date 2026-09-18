@@ -190,6 +190,120 @@ export async function setColourFob(orderId, colourName, fob) {
   });
 }
 
+/* --------------------------------------------------------------------------
+   Quantity, at the level it is actually decided.
+   --------------------------------------------------------------------------
+   "qty and price are now colour level, and should have update facility."
+
+   That is right, and it matters more than the price did, because the two
+   quantities have to AGREE. `orders.qty` is what every report, KPI,
+   notification and value figure in the application reads; the colour rows are
+   what the factory cuts and the shipping desk ships against. If a colour is
+   edited and the style total is left alone, the two drift apart silently and
+   every number downstream is quietly wrong — and nothing on any screen would
+   say so.
+
+   So this is ONE operation, not two: write the colour, re-sum the colours,
+   write the style total. The style quantity stops being a figure anyone types
+   and becomes a consequence of the colours — which is what it always was in
+   reality. The Pricing tab shows it as derived rather than offering a box
+   that would let somebody set it to something the colours contradict.
+
+   The re-sum is done from the DATABASE's own rows after the write, not from
+   whatever the browser was holding. Two people editing two colours of the
+   same style a second apart would otherwise each write a total computed
+   without the other's change, and the last one would win with a wrong
+   number. */
+export async function setColourQty(orderId, colourName, qty) {
+  const value = qty === "" || qty === null || qty === undefined ? null : Number(qty);
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    throw new Error("Quantity must be a number, and not negative.");
+  }
+  if (!Number.isInteger(value)) throw new Error("Quantity must be a whole number of pieces.");
+
+  const { data: beforeRow } = await supabase.from("order_color_ways")
+    .select("qty").eq("order_id", orderId).eq("name", colourName).maybeSingle();
+
+  const { data, error } = await supabase.from("order_color_ways")
+    .update({ qty: value }).eq("order_id", orderId).eq("name", colourName)
+    .select("order_id").single();
+  if (error || !data) {
+    throw new Error("Could not save the colour quantity -- you may not have edit access to this order.");
+  }
+
+  const total = await resyncOrderQty(orderId);
+
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    order_id: orderId, actor_id: user.id, action: "order.field_edited",
+    field_name: `qty (${colourName})`,
+    old_value: beforeRow?.qty != null ? String(beforeRow.qty) : null,
+    new_value: String(value),
+  });
+  return { total };
+}
+
+/* Make the style total equal the sum of its colours. Returns the new total.
+
+   Called after any colour quantity write. Deliberately re-reads the colour
+   rows rather than trusting a number passed in — see setColourQty above. */
+export async function resyncOrderQty(orderId) {
+  const { data: colours, error } = await supabase.from("order_color_ways")
+    .select("qty").eq("order_id", orderId);
+  if (error) throw error;
+  if (!colours || colours.length === 0) return null;   // no breakdown: the style total stands on its own
+
+  const total = colours.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+  const { data: before } = await supabase.from("orders").select("qty").eq("id", orderId).single();
+  if (Number(before?.qty) === total) return total;
+
+  const { data, error: upErr } = await supabase.from("orders")
+    .update({ qty: total }).eq("id", orderId).select("id").single();
+  if (upErr || !data) {
+    /* The colour saved and the total did not. Said out loud rather than
+       swallowed: a style whose total disagrees with its colours is exactly
+       the state this function exists to prevent, and a silent failure here
+       would leave it that way with nothing on screen to show for it. */
+    throw new Error("The colour was saved, but the style total could not be updated — the two now disagree. Ask an administrator to re-save this order.");
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    order_id: orderId, actor_id: user.id, action: "order.field_edited",
+    field_name: "qty", old_value: before?.qty != null ? String(before.qty) : null,
+    new_value: String(total),
+  });
+  return total;
+}
+
+/* The style total, for a style that has NO colour breakdown at all. There is
+   nothing to derive it from in that case, so it is typed directly — and this
+   refuses to run when colours exist, rather than letting a typed total
+   contradict them. */
+export async function setStyleQty(orderId, qty) {
+  const value = qty === "" || qty === null || qty === undefined ? null : Number(qty);
+  if (value === null || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    throw new Error("Quantity must be a whole number of pieces, and not negative.");
+  }
+  const { data: colours } = await supabase.from("order_color_ways")
+    .select("name").eq("order_id", orderId).limit(1);
+  if (colours && colours.length) {
+    throw new Error("This style has a colour breakdown — set the quantity on each colour and the total follows.");
+  }
+
+  const { data: before } = await supabase.from("orders").select("qty").eq("id", orderId).single();
+  const { data, error } = await supabase.from("orders")
+    .update({ qty: value }).eq("id", orderId).select("id").single();
+  if (error || !data) throw new Error("Could not save the quantity -- you may not have edit access to this style.");
+
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    order_id: orderId, actor_id: user.id, action: "order.field_edited",
+    field_name: "qty", old_value: before?.qty != null ? String(before.qty) : null,
+    new_value: String(value),
+  });
+}
+
 /* The style's own price. Deliberately its own function rather than a trip
    through editOrder(): setting a price from the Pricing panel should not
    drag the whole Edit Order form's field set along with it, and — the part

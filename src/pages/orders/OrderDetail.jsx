@@ -52,7 +52,7 @@ const TABS = [
      WHOLE PO — every style at its own price — while every other tab shows
      this one style. Mixing the two scopes on one screen is how "FOB is per
      PO" became a reasonable thing to believe in the first place. */
-  { key: "pricing", label: "Pricing" },
+  { key: "pricing", label: "Qty & Pricing" },
   { key: "tna", label: "Dynamic T&A" },
   { key: "samples", label: "Sample Tracking" },
   { key: "shipment", label: "Shipment Follow-up" },
@@ -201,7 +201,7 @@ export default function OrderDetail() {
       {tab === "activity" && <ActivityTab auditLog={auditLog} />}
 
       {showSheet && <WorkingSheet order={order} milestones={milestones} milestoneTypes={milestoneTypes} dateFormat={dateFormat} onClose={() => setShowSheet(false)} />}
-      {showEdit && <EditOrderModal order={order} factories={factories} labels={labels} dateFormat={dateFormat} onClose={() => setShowEdit(false)} onSaved={async (note) => { setShowEdit(false); setPoWideNote(note || null); await refresh(); }} />}
+      {showEdit && <EditOrderModal order={order} colorWays={colorWays} factories={factories} labels={labels} dateFormat={dateFormat} onClose={() => setShowEdit(false)} onSaved={async (note) => { setShowEdit(false); setPoWideNote(note || null); await refresh(); }} />}
       {showCancel && <CancellationModal order={order} onClose={() => setShowCancel(false)} onDone={async () => { setShowCancel(false); await refresh(); }} />}
     </div>
   );
@@ -820,7 +820,7 @@ function CancellationModal({ order, onClose, onDone }) {
   );
 }
 
-function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved }) {
+function EditOrderModal({ order, colorWays = [], factories, labels, dateFormat, onClose, onSaved }) {
   const [options, setOptions] = useState({ productGroups: [], customers: [], divisions: [], businessUnits: [], merchandisers: [] });
   /* `revised_etd_reason` is EXCLUDED from the draft on purpose. It is written
      to the audit trail as the justification for one specific date change, and
@@ -830,8 +830,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
   const [form, setForm, draft] = useFormDraft(`order.edit.${order.id}`, {
     etd: order.etd || "", revised_etd: order.revised_etd || "", revised_etd_reason: "",
     etd_buffer_days: order.etd_buffer_days ?? 0,
-    factory_code: order.factory_code || "", qty: order.qty ?? "",
-    fob: "fob" in order ? (order.fob ?? "") : "",
+    factory_code: order.factory_code || "",
     status: order.status || "unassigned",
     product_group_code: order.product_groups?.code || "",
     label_code: order.labels?.code || "", season: order.season || "",
@@ -867,7 +866,7 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
     try {
       const changes = {
         etd: form.etd || null, revised_etd: form.revised_etd || null,
-        factory_code: form.factory_code || null, qty: form.qty === "" ? null : Number(form.qty),
+        factory_code: form.factory_code || null,
         status: form.status, product_group_code: form.product_group_code || null,
         label_code: form.label_code || null, season: form.season || null,
         customer_code: form.customer_code || null, division_code: form.division_code || null,
@@ -875,13 +874,12 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
         primary_merchandiser_id: form.primary_merchandiser_id || null,
         fabric_ref: form.fabric_ref || null,
       };
-      if (showFob) changes.fob = form.fob === "" ? null : Number(form.fob);
       /* Sending a column the database does not have fails the entire UPDATE,
          so the buffer is only written once a read has proved the column is
          there. Edit Order keeps working exactly as before until then. */
       if (bufferReady) changes.etd_buffer_days = Number(form.etd_buffer_days) || 0;
       const before = {
-        etd: order.etd, revised_etd: order.revised_etd, etd_buffer_days: order.etd_buffer_days ?? 0, factory_code: order.factory_code, qty: order.qty, fob: order.fob,
+        etd: order.etd, revised_etd: order.revised_etd, etd_buffer_days: order.etd_buffer_days ?? 0, factory_code: order.factory_code,
         status: order.status, product_group_code: order.product_groups?.code, label_code: order.labels?.code, season: order.season,
         customer_code: order.customers?.code, division_code: order.divisions?.code,
         business_unit_code: order.business_units?.code, primary_merchandiser_id: order.primary_merchandiser_id,
@@ -979,13 +977,37 @@ function EditOrderModal({ order, factories, labels, dateFormat, onClose, onSaved
           <label className="edit-field">Business Unit<SelectWithAddNew value={form.business_unit_code} onChange={v => set("business_unit_code", v)} options={options.businessUnits} table="business_units" onAdded={refreshOptions} /></label>
           <label className="edit-field">Factory<select value={form.factory_code} onChange={e => set("factory_code", e.target.value)}><option value="">Not yet assigned</option>{factories.map(f => <option key={f.code} value={f.code}>{f.code} - {f.name}</option>)}</select></label>
           <label className="edit-field">Status<select value={form.status} onChange={e => set("status", e.target.value)}><option value="unassigned">Unassigned</option><option value="sourcing">Sourcing</option><option value="production">In Production</option><option value="shipped">Shipped</option></select></label>
-          <label className="edit-field">Qty <span className="style-tag" title="The quantity of this style only">this style</span><input type="number" value={form.qty} onChange={e => set("qty", e.target.value)} /></label>
+          {/* Quantity and FOB are NOT edited here any more.
+
+              Both are colour-level facts now: the quantity of a style is the
+              sum of its colours, and a colour can carry its own price. A box
+              on this form could only ever set the style figure, which would
+              then contradict the colours underneath it — and `orders.qty` is
+              what every report, KPI and value figure reads, so the
+              contradiction would be invisible and everywhere.
+
+              One field, one home. They are shown here because this is where
+              people look, and the link goes to the screen that owns them. */}
+          <div className="edit-field ro-field">
+            <span className="ro-lbl">Qty <span className="style-tag">this style</span></span>
+            <span className="ro-val">{fmtNum(order.qty)}</span>
+            <span className="ro-note">
+              {colorWays.length
+                ? `sum of ${colorWays.length} colour${colorWays.length !== 1 ? "s" : ""}`
+                : "no colour breakdown"}
+            </span>
+          </div>
           {showFob && (
-            <label className="edit-field">
-              FOB <span className="style-tag" title="FOB is the price of THIS STYLE. Other styles under the same PO have their own — see the Pricing tab.">this style</span>
-              <input type="number" step="0.01" min="0" value={form.fob} onChange={e => set("fob", e.target.value)} />
-            </label>
+            <div className="edit-field ro-field">
+              <span className="ro-lbl">FOB <span className="style-tag">this style</span></span>
+              <span className="ro-val">{fmtFob(order.fob)}</span>
+              <span className="ro-note">per piece</span>
+            </div>
           )}
+          <div className="edit-field ro-hint" style={{ gridColumn: "1 / -1" }}>
+            Quantity and FOB are edited on the <strong>Qty &amp; Pricing</strong> tab,
+            colour by colour, where the whole PO is visible at once.
+          </div>
           <label className="edit-field">Fabric Ref<input value={form.fabric_ref} onChange={e => set("fabric_ref", e.target.value)} placeholder="From PLM, or add manually" /></label>
           {/* Product Group is a real select here, not the free-text input
               v13 used -- orders.product_group_code is a genuine foreign

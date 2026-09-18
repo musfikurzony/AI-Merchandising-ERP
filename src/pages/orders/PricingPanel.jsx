@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getPoPricing, setStyleFob, setColourFob, colourFobAvailable } from "../../lib/ordersApi.js";
+import { getPoPricing, setStyleFob, setColourFob, setColourQty, setStyleQty, colourFobAvailable } from "../../lib/ordersApi.js";
 import { poPricing, colourFob, hasColourOverride } from "../../lib/pricing.js";
 
 /* ==========================================================================
@@ -30,6 +30,21 @@ import { poPricing, colourFob, hasColourOverride } from "../../lib/pricing.js";
    A blank colour field therefore shows the inherited price in grey, so it is
    obvious the colour HAS a price rather than looking unpriced. Clearing an
    override returns the colour to the style price rather than to nothing.
+
+   --------------------------------------------------------------------------
+   QUANTITY IS EDITED HERE TOO, AND THE STYLE TOTAL IS NOT TYPED
+   --------------------------------------------------------------------------
+   "qty and price are now colour level, and should have update facility."
+
+   Quantity is edited on the COLOUR, and the style total is the sum of its
+   colours — shown, not offered as a box. That is not a restriction, it is the
+   only arrangement in which the two can never disagree: `orders.qty` is what
+   every report, KPI and value figure reads, and a style total somebody could
+   type to contradict its own colours would make all of them quietly wrong
+   with nothing on screen to say so.
+
+   A style with NO colour breakdown has nothing to derive a total from, so
+   there the quantity IS typed directly. The box appears only in that case.
 */
 
 function money(n) {
@@ -44,7 +59,7 @@ function price(n) {
 /* One editable price cell. Kept local so a keystroke does not re-render the
    whole PO, and committed on blur or Enter rather than on every character —
    a save per keystroke would write "3", "3.9", "3.95" to the audit log. */
-function FobInput({ value, placeholder, disabled, title, onCommit }) {
+function NumInput({ value, placeholder, disabled, title, step = "0.01", width, onCommit }) {
   const [draft, setDraft] = useState(value ?? "");
   const [busy, setBusy] = useState(false);
   useEffect(() => { setDraft(value ?? ""); }, [value]);
@@ -61,7 +76,8 @@ function FobInput({ value, placeholder, disabled, title, onCommit }) {
   return (
     <input
       className="fob-input"
-      type="number" step="0.01" min="0" inputMode="decimal"
+      style={width ? { width } : undefined}
+      type="number" step={step} min="0" inputMode="decimal"
       value={draft}
       placeholder={placeholder}
       disabled={disabled || busy}
@@ -118,10 +134,11 @@ export default function PricingPanel({ order, canEdit, onChanged }) {
     <div className="pp-wrap">
       <div className="pp-head">
         <div>
-          <h3 className="pp-title">Pricing — {order.po_prefix}{order.po_number}</h3>
+          <h3 className="pp-title">Qty &amp; Pricing — {order.po_prefix}{order.po_number}</h3>
           <p className="pp-sub">
-            FOB belongs to the <strong>style</strong>. Leave a colour blank unless that
-            one colour genuinely costs something different.
+            Quantity is entered on the <strong>colour</strong>; the style total is the
+            sum of its colours. FOB belongs to the <strong>style</strong> — leave a colour
+            blank unless that one colour genuinely costs something different.
           </p>
         </div>
         <div className="pp-total">
@@ -166,10 +183,28 @@ export default function PricingPanel({ order, canEdit, onChanged }) {
                       ? `${colours.length} colour${colours.length !== 1 ? "s" : ""}`
                       : "no colour breakdown"}
                   </td>
-                  <td className="num">{(Number(o.qty) || 0).toLocaleString()}</td>
+                  <td className="num">
+                    {colours.length ? (
+                      /* Derived, not typed. The sum of the colours below it —
+                         showing a box here would let somebody set a total its
+                         own colours contradict, and `orders.qty` is what every
+                         report reads. */
+                      <span className="pp-derived" title={`Sum of ${colours.length} colour${colours.length !== 1 ? "s" : ""} — edit the colours below`}>
+                        {(Number(o.qty) || 0).toLocaleString()}
+                      </span>
+                    ) : canEdit ? (
+                      <NumInput
+                        value={o.qty ?? ""}
+                        step="1" width={72}
+                        placeholder="—"
+                        title="This style has no colour breakdown, so its quantity is entered directly."
+                        onCommit={v => save(() => setStyleQty(o.id, v), `${o.style} quantity`)}
+                      />
+                    ) : (Number(o.qty) || 0).toLocaleString()}
+                  </td>
                   <td className="num">
                     {canEdit ? (
-                      <FobInput
+                      <NumInput
                         value={o.fob ?? ""}
                         placeholder="—"
                         title="The price for this style. Every colour under it uses this unless it carries its own."
@@ -191,10 +226,20 @@ export default function PricingPanel({ order, canEdit, onChanged }) {
                         {cw.name}
                         {own && <span className="pp-own" title="This colour carries its own price, different from its style">own price</span>}
                       </td>
-                      <td className="num">{cwQty.toLocaleString()}</td>
+                      <td className="num">
+                        {canEdit ? (
+                          <NumInput
+                            value={cw.qty ?? ""}
+                            step="1" width={72}
+                            placeholder="0"
+                            title="The quantity of this colour. The style total above is the sum of these."
+                            onCommit={v => save(() => setColourQty(o.id, cw.name, v), `${cw.name} quantity`)}
+                          />
+                        ) : cwQty.toLocaleString()}
+                      </td>
                       <td className="num">
                         {colourEditable ? (
-                          <FobInput
+                          <NumInput
                             value={cw.fob ?? ""}
                             placeholder={o.fob != null ? Number(o.fob).toFixed(2) : "—"}
                             title={own

@@ -1435,3 +1435,43 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .fob-input:focus { outline: 2px solid #2B6E6A; outline-offset: -1px; }
 .fob-input:disabled { background: #F3F4F6; color: #9CA3AF; }
 .fob-input::placeholder { color: #C4C9D0; }
+
+/* --------------------------------------------------------------------------
+   READ-ONLY FIELDS ON EDIT ORDER (v98)
+   --------------------------------------------------------------------------
+   Quantity and FOB moved to the Qty & Pricing tab, because both are now
+   colour-level facts and a box here could only ever set the STYLE figure —
+   which would then contradict the colours underneath it. They are still shown
+   here, because this is where people look for them, styled as facts rather
+   than fields so there is no invitation to type. */
+.ro-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #F8FAFC;
+  border: 1px dashed #D8DEE6;
+}
+.ro-lbl { font-size: 11.5px; color: #6B7280; }
+.ro-val { font-size: 15px; font-weight: 600; color: #16302E; font-variant-numeric: tabular-nums; }
+.ro-note { font-size: 10.5px; color: #9CA3AF; }
+.ro-hint {
+  font-size: 11.5px;
+  color: #1F5A57;
+  background: #E9F5F4;
+  border: 1px solid #CBE7E5;
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+/* A derived total is a fact, not a field. Shown in the same tabular figures
+   as the editable cells so the column still lines up, but plainly not a box. */
+.pp-derived {
+  display: inline-block;
+  padding: 4px 6px;
+  color: #16302E;
+  font-weight: 600;
+  border-bottom: 1px dotted #C4C9D0;
+  cursor: help;
+}
