@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 import { supabase } from "./supabaseClient.js";
+import { requiredKeys, FIELDS } from "./importFields.js";
+import { parseImportDate, dateErrorFor, AMBIGUOUS } from "./importDates.js";
 
 /* Core import engine, shared by Main PLM and Licensee -- both create
    records in the same standard orders/order_color_ways structure, per
@@ -27,15 +29,18 @@ const PLM_FIELD_ALIASES = {
   merchandiser: ["bc status by", "merchandiser"],
 };
 
-// Licensee's own required set is smaller and explicit -- Division/Business
-// Unit/Customer/Season are allowed blank per direct instruction. Color Way
-// is optional too: a Licensee order without one still fits the shared
-// PO -> Style -> Color Way structure using a single default color way,
-// rather than needing a separate order shape. Flagging this design choice
-// here rather than assuming it's obviously right.
+/* Required fields come from lib/importFields.js, which is also what the
+   on-screen guide and the downloadable template are built from — so the help
+   text cannot promise something different from what this code enforces.
+
+   The licensee list no longer includes PO PREFIX. It never should have: a
+   Perry Ellis PO is `RT` + `5077`, but a licensee's is one reference like
+   `TP13-SP27 HATS` with nothing in front of it. The requirement was copied
+   across from the Main PLM rules without asking whether it applied, and it
+   failed all 46 rows of a perfectly good file. */
 const REQUIRED_FIELDS = {
-  plm: ["po_prefix", "po_number", "style", "color_way", "qty"],
-  licensee: ["po_prefix", "po_number", "style", "qty"],
+  plm: requiredKeys("plm"),
+  licensee: requiredKeys("licensee"),
 };
 
 function detectHeaderRow(rows) {
@@ -67,24 +72,21 @@ function splitCodeName(raw) {
   return { code: s.slice(0, dashIdx).trim(), name: s.slice(dashIdx + 3).trim() };
 }
 
-function excelDateToISO(v) {
-  if (!v) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === "number") {
-    // Excel serial date
-    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return d.toISOString().slice(0, 10);
-  }
-  const d = new Date(v);
-  return isNaN(d) ? null : d.toISOString().slice(0, 10);
-}
+/* Replaced by lib/importDates.js. The old version ended in
+   `new Date(v)`, which reads 11/10/2026 as 10 November — so a licensee PO
+   could be booked a month out with nothing on screen to show for it. A date
+   that can be read two ways is now REFUSED, not guessed. */
+const excelDateToISO = v => {
+  const r = parseImportDate(v);
+  return r === AMBIGUOUS ? null : r;
+};
 
 // Step 1: look at the workbook's sheets, without parsing any data yet, so
 // the UI can show the user what's there and require an explicit choice
 // when there's more than one -- never silently combine or guess.
 export async function inspectWorkbook(file) {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
   const sheets = wb.SheetNames.map(name => {
     const ws = wb.Sheets[name];
     const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
@@ -104,10 +106,14 @@ export async function inspectWorkbook(file) {
 // workbook.
 export async function parseSheet(file, source, sheetName) {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
+  /* cellDates, so a real Excel date cell arrives as a Date rather than as
+     text the parser would then have to guess at. It is the difference
+     between an unambiguous value and "11/10/2026", which means 11 October
+     here and 10 November to almost every date library. */
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet "${sheetName}" not found in this workbook.`);
-  const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+  const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
   const { headerRowIndex, score } = detectHeaderRow(allRows);
   const columnMap = buildColumnMap(allRows[headerRowIndex]);
@@ -133,17 +139,49 @@ export async function parseSheet(file, source, sheetName) {
 
     const rawData = {};
     for (const field of Object.keys(PLM_FIELD_ALIASES)) {
-      const v = get(field);
+      let v = get(field);
+      /* Trimmed, including the trailing newline Excel leaves behind when a
+         cell was typed with Alt+Enter. A real file arrived with "SP2027 \n"
+         and "ACCESSORIES " — invisible on screen, and enough to miss a
+         master-data match for a reason nobody could see. */
+      if (typeof v === "string") v = v.replace(/\s+/g, " ").trim();
       if (v !== undefined && v !== null && v !== "") rawData[field] = v;
     }
 
     const errors = [];
+    const headerOf = k => FIELDS.find(f => f.key === k)?.header || k.replace(/_/g, " ");
     for (const f of required) {
-      if (rawData[f] === undefined) errors.push(`${f.replace(/_/g, " ")} is required and was blank`);
+      if (rawData[f] === undefined) errors.push(`${headerOf(f)} is required and was blank`);
     }
     if (rawData.qty !== undefined && (isNaN(Number(rawData.qty)) || Number(rawData.qty) <= 0)) {
-      errors.push(`Qty must be a positive number, got "${rawData.qty}"`);
+      errors.push(`Ordered Quantity must be a positive number, got "${rawData.qty}"`);
     }
+
+    /* Dates are validated HERE, at analyse time, rather than at write time.
+       A date that cannot be read unambiguously stops its row in the preview
+       — where it can be fixed — instead of being quietly turned into null or,
+       worse, into the wrong month. */
+    for (const key of ["etd", "po_issue_date"]) {
+      if (rawData[key] === undefined) continue;
+      const parsedDate = parseImportDate(rawData[key]);
+      if (parsedDate === AMBIGUOUS) {
+        errors.push(dateErrorFor(headerOf(key), rawData[key], true));
+        delete rawData[key];
+      } else if (parsedDate === null) {
+        errors.push(dateErrorFor(headerOf(key), rawData[key], false));
+        delete rawData[key];
+      } else {
+        rawData[key] = parsedDate;          // normalised to YYYY-MM-DD
+      }
+    }
+
+    /* A licensee PO has no prefix — the whole reference is in PO #. An empty
+       string rather than a null keeps the order's identity (prefix + number)
+       the same shape as every other order's, so grouping, sharing and the
+       PO-wide field spread all keep working without a special case. The PO
+       then reads exactly as the licensee wrote it: "TP13-SP27 HATS". */
+    if (source === "licensee" && rawData.po_prefix === undefined) rawData.po_prefix = "";
+
     // Licensee: no Color Way column is fine -- default to a single implicit
     // color way so the shared PO -> Style -> Color Way structure still
     // applies underneath.
@@ -355,13 +393,26 @@ export async function executeImport(classifiedRows, source, fileName, cancelledR
       customer_code: custCode, season: sample.rawData.season || null,
       fabric_ref: sample.rawData.fabric_ref || null, qty: g.total_qty,
     };
-    // ETD and FOB are deliberately never set from PLM -- confirmed
-    // explicitly: these get confirmed later, via Factory Assignment /
-    // Edit Order, not pulled from the PLM file at all. This also means
-    // the earlier re-import protection logic (only touching ETD/FOB on
-    // unconfirmed orders) is no longer needed -- there's nothing to
-    // protect when the import never writes these fields in the first
-    // place.
+    /* ETD and FOB are deliberately never set from the MAIN PLM — confirmed
+       explicitly: those get confirmed later via Factory Assignment / Edit
+       Order, not pulled from the file.
+
+       LICENSEE IS DIFFERENT, and the distinction matters. A licensee order
+       arrives by email or spreadsheet carrying its own required ship date
+       and its own price — that file IS the source of truth for them, and
+       re-typing 46 dates by hand afterwards is exactly the work this import
+       exists to remove.
+
+       So they are written ON CREATE only. On a RE-IMPORT they are filled in
+       only where the order does not already have one: a date revised in the
+       ERP, or a price negotiated after the order arrived, must not be
+       silently reverted to whatever the original email said. */
+    const fromFile = {};
+    if (source === "licensee") {
+      if (sample.rawData.etd) fromFile.etd = sample.rawData.etd;
+      const price = Number(sample.rawData.unit_price);
+      if (Number.isFinite(price) && price > 0) fromFile.fob = price;
+    }
 
     const { data: existing } = await supabase.from("orders")
       .select("id, factory_code").eq("po_prefix", g.po_prefix).eq("po_number", g.po_number).eq("style", g.style).maybeSingle();
@@ -369,12 +420,23 @@ export async function executeImport(classifiedRows, source, fileName, cancelledR
     let orderId;
     if (existing) {
       orderId = existing.id;
-      await supabase.from("orders").update(identityFields).eq("id", orderId);
+      /* Only the blanks. Reading the current values first costs one query and
+         is what stops a re-import undoing a revised date or a renegotiated
+         price — the failure mode nobody notices until a factory asks why the
+         date moved back. */
+      const fill = {};
+      if (Object.keys(fromFile).length) {
+        const { data: cur } = await supabase.from("orders")
+          .select("etd, fob").eq("id", orderId).maybeSingle();
+        if (fromFile.etd && cur && !cur.etd) fill.etd = fromFile.etd;
+        if (fromFile.fob != null && cur && (cur.fob === null || cur.fob === undefined)) fill.fob = fromFile.fob;
+      }
+      await supabase.from("orders").update({ ...identityFields, ...fill }).eq("id", orderId);
     } else {
       const { data: created, error } = await supabase.from("orders").insert({
         po_prefix: g.po_prefix, po_number: g.po_number, style: g.style,
         order_rcv_date: excelDateToISO(sample.rawData.po_issue_date),
-        primary_merchandiser_id: m.merchandiserId, ...identityFields,
+        primary_merchandiser_id: m.merchandiserId, ...identityFields, ...fromFile,
       }).select("id").single();
       if (error) { rowResults.push({ row: sample, classification: "error", errorMessage: error.message }); continue; }
       orderId = created.id;

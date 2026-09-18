@@ -1537,3 +1537,103 @@ th.cf-sorted .sort-arrow { opacity: 1; color: #2B6E6A; }
   color: #92400E;
   vertical-align: middle;
 }
+
+/* --------------------------------------------------------------------------
+   IMPORT FIELD GUIDE AND PASTE-IN (v101)
+   --------------------------------------------------------------------------
+   A 46-row Licensee file failed every row on a requirement that should never
+   have applied to it, and there was nowhere on screen to find out what the
+   rules were or what a date should look like. The guide is generated from the
+   same field list the importer enforces, so it cannot drift. */
+.ifg { margin-bottom: 14px; }
+.ifg-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 13px;
+  border: 1px solid #CBE7E5;
+  background: #F0FAF9;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F5A57;
+  cursor: pointer;
+  text-align: left;
+}
+.ifg-toggle:hover { background: #E4F4F2; }
+.ifg-caret { font-size: 10px; }
+.ifg-sub { margin-left: auto; font-weight: 400; font-size: 11.5px; color: #5C8F8C; }
+
+.ifg-body {
+  border: 1px solid #E5E7EB;
+  border-top: none;
+  border-radius: 0 0 9px 9px;
+  padding: 14px 16px 18px;
+  background: #fff;
+}
+.ifg-lead { font-size: 12.5px; color: #4B5563; margin: 0 0 10px; max-width: 78ch; }
+.ifg-note {
+  font-size: 12.5px;
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  color: #9A3412;
+  padding: 9px 12px;
+  border-radius: 8px;
+  margin: 0 0 12px;
+  max-width: 78ch;
+}
+.ifg-warn {
+  font-size: 12.5px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+  padding: 9px 12px;
+  border-radius: 8px;
+  margin: 8px 0 0;
+  max-width: 78ch;
+}
+.ifg-h { font-size: 13px; margin: 18px 0 6px; color: #16302E; }
+.ifg-table td { vertical-align: top; font-size: 12.5px; }
+.ifg-table tr.ifg-req td { background: #FAFDFC; }
+.ifg-yes {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; background: #E0F2F1; color: #1F5A57; white-space: nowrap;
+}
+.ifg-opt { font-size: 11.5px; color: #9CA3AF; }
+.ifg-dates { margin: 0; padding-left: 18px; font-size: 12.5px; color: #4B5563; }
+.ifg-dates li { margin-bottom: 4px; }
+.ifg-dates code {
+  background: #F3F4F6; padding: 1px 5px; border-radius: 4px; font-size: 12px; margin: 0 4px;
+}
+.ifg-dnote { color: #9CA3AF; font-size: 11.5px; }
+
+/* Paste-in */
+.im-modes { display: flex; gap: 8px; margin: 0 0 12px; }
+.im-pastenote {
+  font-size: 12.5px; color: #065F46; background: #ECFDF5;
+  border: 1px solid #A7F3D0; border-radius: 8px; padding: 7px 11px; margin: 0 0 12px;
+}
+.pr-wrap {
+  border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px 16px; background: #FCFCFD;
+  margin-bottom: 12px;
+}
+.pr-lead { font-size: 12.5px; color: #4B5563; margin: 0 0 6px; max-width: 78ch; }
+.pr-req { font-size: 12px; color: #6B7280; margin: 0 0 10px; }
+.pr-text {
+  width: 100%; box-sizing: border-box; padding: 10px 12px;
+  border: 1px solid #D1D5DB; border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  resize: vertical;
+}
+.pr-text:focus { outline: 2px solid #2B6E6A; outline-offset: -1px; }
+.pr-err { color: #B91C1C; font-size: 12.5px; margin: 8px 0 0; }
+.pr-preview { margin-top: 10px; }
+.pr-stat { font-size: 12.5px; color: #374151; margin-bottom: 6px; }
+.pr-added {
+  margin-left: 8px; font-size: 10.5px; padding: 1px 6px; border-radius: 999px;
+  background: #FEF3C7; color: #92400E;
+}
+.pr-scroll { overflow-x: auto; border: 1px solid #E5E7EB; border-radius: 8px; }
+.pr-table { margin: 0; font-size: 11.5px; white-space: nowrap; }
+.pr-actions { display: flex; gap: 8px; margin-top: 12px; }

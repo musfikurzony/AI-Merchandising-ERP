@@ -2,13 +2,67 @@ import React, { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { inspectWorkbook, parseSheet, classifyAndPreview, groupByOrder, executeImport, listImportHistory, previewImportBatchDeletion, deleteImportBatch } from "../../lib/plmImportApi.js";
+import ImportFieldGuide from "../../components/ImportFieldGuide.jsx";
+import PasteRows from "../../components/PasteRows.jsx";
+import { fieldsFor, isRequired, helpFor, DATE_FORMATS, AMBIGUOUS_DATE_NOTE } from "../../lib/importFields.js";
 
+/* The template is generated from the same field list the importer enforces
+   and the on-screen guide renders, so the three cannot disagree.
+
+   Two changes from the version that shipped before: PO Prefix is gone (a
+   licensee PO has no prefix, and a column people are told to leave blank is
+   a column that gets filled in), and the workbook carries a second sheet of
+   instructions — because the file is what gets forwarded to a licensee, and
+   the guide on this screen travels with nobody. */
 function downloadLicenseeTemplate() {
-  const headers = ["PO Prefix", "PO #", "Style#", "Color Way", "Ordered Quantity", "PO Issue Date", "Division", "Business Unit", "Customer Name", "Product Group", "Label", "Season", "Latest Required X-Country Ship Date", "Unit_Price"];
-  const example = ["LI", "1001", "ABC123", "MAIN", 500, "2026-01-15", "", "", "", "SHIRTS", "", "", "2026-06-01", 4.5];
-  const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+  const fields = fieldsFor("licensee");
+  const headers = fields.map(f => f.header);
+  const example = fields.map(f => {
+    switch (f.key) {
+      case "po_number": return "TP13-SP27 HATS";
+      case "style": return "OGASE020";
+      case "color_way": return "001 CAVIAR";
+      case "qty": return 144;
+      case "etd": return "2026-10-11";
+      case "po_issue_date": return "2026-08-20";
+      case "unit_price": return 4.5;
+      case "customer": return "INDUSTRIAS TOPAZ LTDA. DE C.V.";
+      case "division": return "Licensee";
+      case "product_group": return "ACCESSORIES";
+      case "label": return "ORIGINAL PENGUIN GOLF";
+      case "season": return "SP2027";
+      default: return "";
+    }
+  });
+  const second = example.map((v, i) => (fields[i].key === "color_way" ? "118 BRIGHT WHITE"
+    : fields[i].key === "qty" ? 120 : v));
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, example, second]);
+  ws["!cols"] = headers.map(h => ({ wch: Math.max(12, Math.min(34, h.length + 4)) }));
+
+  const guide = [
+    ["ERP LICENSEE IMPORT — HOW TO FILL IN THE SHEET"],
+    [""],
+    ["One row per PO + Style + Colour. Column order does not matter; extra columns are ignored."],
+    ["Heading names must match the 'Licensee Import' sheet exactly."],
+    [""],
+    ["COLUMN", "REQUIRED?", "WHAT GOES IN IT"],
+    ...fields.map(f => [f.header, isRequired(f, "licensee") ? "REQUIRED" : "optional", helpFor(f, "licensee")]),
+    [""],
+    ["DATES — for 'Latest Required X-Country Ship Date' and 'PO Issue Date'"],
+    ...DATE_FORMATS.map(d => [d.label, d.example, d.note]),
+    [""],
+    ["NOT ACCEPTED", "", AMBIGUOUS_DATE_NOTE],
+    [""],
+    ["NOTE", "", "A row whose PO + Style + Colour already exists is treated as an UPDATE, not a duplicate."],
+    ["NOTE", "", "Nothing is written until Import is pressed. Analyse only reads the file."],
+  ];
+  const wsGuide = XLSX.utils.aoa_to_sheet(guide);
+  wsGuide["!cols"] = [{ wch: 38 }, { wch: 14 }, { wch: 90 }];
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Licensee Import");
+  XLSX.utils.book_append_sheet(wb, wsGuide, "How to fill this in");
   XLSX.writeFile(wb, "ERP_Licensee_Import_Template.xlsx");
 }
 
@@ -146,6 +200,8 @@ function ImportHistoryPanel() {
 export default function PlmImportCenter() {
   const [view, setView] = useState("import");
   const [source, setSource] = useState("plm");
+  const [inputMode, setInputMode] = useState("file");
+  const [pasteNote, setPasteNote] = useState(null);
   const [file, setFile] = useState(null);
   const [sheetInfo, setSheetInfo] = useState(null);
   const [selectedSheet, setSelectedSheet] = useState(null);
@@ -157,8 +213,7 @@ export default function PlmImportCenter() {
   const [error, setError] = useState(null);
   const cancelledRef = useRef(false);
 
-  async function handleFileChange(e) {
-    const f = e.target.files[0];
+  async function useWorkbook(f) {
     setFile(f); setClassified(null); setResult(null); setParseResult(null); setError(null);
     if (!f) { setSheetInfo(null); return; }
     try {
@@ -168,6 +223,22 @@ export default function PlmImportCenter() {
     } catch (e) {
       setError(e.message);
     }
+  }
+
+  async function handleFileChange(e) {
+    await useWorkbook(e.target.files[0]);
+  }
+
+  /* A paste arrives as a real .xlsx File, so everything downstream — sheet
+     inspection, parsing, classification, the preview — is the same code path
+     as a chosen file. A second parser for pasted text would be a second set
+     of rules to keep in step with the first. */
+  async function handlePasted(f, meta) {
+    setInputMode("paste");
+    await useWorkbook(f);
+    setPasteNote(meta?.rows
+      ? `${meta.rows} row${meta.rows !== 1 ? "s" : ""} pasted${meta.addedHeader ? " — headings taken from the template" : ""}.`
+      : null);
   }
 
   async function handleAnalyze() {
@@ -226,8 +297,8 @@ export default function PlmImportCenter() {
       {view === "import" && (
         <>
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <button className={source === "plm" ? "chip active" : "chip"} onClick={() => { setSource("plm"); setClassified(null); setFile(null); }}>Main PLM</button>
-        <button className={source === "licensee" ? "chip active" : "chip"} onClick={() => { setSource("licensee"); setClassified(null); setFile(null); }}>Licensee</button>
+        <button className={source === "plm" ? "chip active" : "chip"} onClick={() => { setSource("plm"); setClassified(null); setFile(null); setInputMode("file"); setPasteNote(null); }}>Main PLM</button>
+        <button className={source === "licensee" ? "chip active" : "chip"} onClick={() => { setSource("licensee"); setClassified(null); setFile(null); setInputMode("file"); setPasteNote(null); }}>Licensee</button>
         {source === "licensee" && <button onClick={downloadLicenseeTemplate} style={{ marginLeft: "auto" }}>Download Licensee Template</button>}
       </div>
 
@@ -238,7 +309,25 @@ export default function PlmImportCenter() {
         </p>
       )}
 
-      <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ marginBottom: 12 }} />
+      <ImportFieldGuide source={source} />
+
+      {/* Licensee orders arrive as a spreadsheet OR in the body of an email.
+          Only the first had a way in; the second meant pasting into Excel and
+          saving a file for no reason but the code's convenience. */}
+      {source === "licensee" && (
+        <div className="im-modes">
+          <button className={inputMode === "file" ? "chip active" : "chip"}
+            onClick={() => { setInputMode("file"); setPasteNote(null); }}>Upload a file</button>
+          <button className={inputMode === "paste" ? "chip active" : "chip"}
+            onClick={() => { setInputMode("paste"); }}>Paste rows from an email</button>
+        </div>
+      )}
+
+      {pasteNote && <p className="im-pastenote">{pasteNote}</p>}
+
+      {source === "licensee" && inputMode === "paste"
+        ? <PasteRows source={source} onReady={handlePasted} disabled={importing} />
+        : <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ marginBottom: 12 }} />}
 
       {sheetInfo && sheetInfo.requiresSelection && (
         <div style={{ background: "#FEF3C7", padding: 14, borderRadius: 8, marginBottom: 12 }}>
